@@ -378,7 +378,7 @@ try {
         Assert (-not (Test-AppFolder $romDemo.Directory @(Get-ChildItem -LiteralPath $romDemo.DirectoryName -Force))) 'Linux: ROM named after an emulator does not protect its folder'
         $linuxApp = New-Fixture 'linux-app-check/app/snes9x-gtk' ([byte[]]@(1,2,3))
         $mode = $linuxApp.PSObject.Properties['UnixFileMode']
-        if ($mode) { $linuxApp.UnixFileMode = [IO.UnixFileMode]'UserRead, UserWrite, UserExecute' }
+        if ($mode -and [IO.Path]::DirectorySeparatorChar -ne '\') { $linuxApp.UnixFileMode = [IO.UnixFileMode]'UserRead, UserWrite, UserExecute' }
         Assert ([bool](Test-AppFolder $linuxApp.Directory @(Get-ChildItem -LiteralPath $linuxApp.DirectoryName -Force))) 'Linux: extensionless emulator program still protects its folder'
     } finally { $script:OnWindows = $oldOnWindows }
     Assert (-not ($biosInventory | Where-Object FullName -eq $biosExecutable.FullName).Target) 'BIOS-like executable is never treated as movable firmware'

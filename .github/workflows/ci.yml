@@ -1,0 +1,79 @@
+name: CI
+on:
+  pull_request:
+    branches: [beta, main]
+  workflow_call:
+permissions:
+  contents: read
+jobs:
+  application:
+    name: Application and engine
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: web/client/package-lock.json
+      - name: Engine regressions
+        shell: pwsh
+        run: ./RomSorter.Tests.ps1
+      - name: Build API
+        run: dotnet build web/server/RomChecker.Web.csproj
+      - name: Frontend build and tests
+        working-directory: web/client
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: API integration
+        shell: pwsh
+        run: ./web/tests/Api.Tests.ps1
+      - name: Install browser
+        working-directory: web/client
+        run: npx playwright install --with-deps chromium
+      - name: Browser workflows under a proxy subpath
+        working-directory: web/client
+        run: npm run test:e2e
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-failure
+          path: web/client/test-results/
+  windows-engine:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Windows PowerShell compatibility
+        shell: powershell
+        run: .\RomSorter.Tests.ps1
+  container:
+    name: Container smoke test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: romchecker:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Verify non-root runtime, subpath, and authentication
+        run: |
+          docker run -d --name romchecker-ci -p 127.0.0.1:8080:8080 \
+            -e ROMCHECKER_PASSWORD=ci-fixture-only-password \
+            -e ROMCHECKER_PATH_BASE=/roms romchecker:test
+          curl --fail --retry 20 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/roms/healthz
+          curl --fail http://127.0.0.1:8080/roms/ | grep 'content="/roms"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/roms/api/jobs)" = 401
+          test "$(docker exec romchecker-ci id -u)" = 10001
+          docker exec romchecker-ci pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+      - name: Container logs
+        if: always()
+        run: docker logs romchecker-ci || true

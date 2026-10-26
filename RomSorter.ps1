@@ -272,6 +272,7 @@ param(
     [switch]$Undo,
     [switch]$ListRemaining,
     [switch]$NoMenu,
+    [switch]$DefinitionsOnly,
     [switch]$Unpack,
     [switch]$DoEverything,
     [ValidateSet('Off', 'Risky', 'Unverified', 'All')][string]$OnlineCheck,
@@ -542,6 +543,13 @@ function Update-RomProgress {
     if (-not $Force -and -not $newPhase -and $p.Watch.Elapsed.TotalSeconds - $p.LastRender -lt 0.25) { return }
     $p.LastRender = $p.Watch.Elapsed.TotalSeconds
     $estimate = Get-ProgressEstimate $p.Done $p.Total $now $p.Rate $p.Unknown
+    if ($script:ProgressSink) {
+        & $script:ProgressSink ([pscustomobject]@{
+            Task = $p.Name; Phase = $p.Phase; Done = $p.Done; Total = $p.Total; Unit = $p.Unit
+            Percent = $estimate.Percent; SecondsRemaining = $estimate.SecondsRemaining
+            Current = $p.Current; Detail = $p.Detail; Elapsed = $p.Watch.Elapsed.TotalSeconds
+        })
+    }
     $eta = if ($estimate.SecondsRemaining -ge 0) { '~' + (Format-ProgressTime $estimate.SecondsRemaining) } elseif ($p.Unknown) { 'Unknown' } else { 'Calculating...' }
     $count = if ($p.Total -gt 0) { "$($p.Done) / $($p.Total) $($p.Unit)" } else { "$($p.Done) $($p.Unit)" }
     if ($p.Unit -eq 'bytes') { $count = '{0:N1} / {1:N1} MB' -f ($p.Done/1MB),($p.Total/1MB) }
@@ -4677,6 +4685,7 @@ function Start-Menu {
 }
 
 # ===================================================================== START
+if ($DefinitionsOnly) { return }
 $S = Read-Settings
 if ($RootFolder) { $S.RootFolder = $RootFolder }
 if (-not (Test-Path -LiteralPath $S.RootFolder -PathType Container)) { throw "Folder not found: $($S.RootFolder)" }

@@ -1,0 +1,42 @@
+services:
+  romchecker:
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:beta}
+    build:
+      context: .
+      args:
+        VERSION: ${ROMCHECKER_VERSION:-0.2.0-dev}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ROMCHECKER_PORT:-8080}:8080"
+    environment:
+      ROMCHECKER_PASSWORD: ${ROMCHECKER_PASSWORD:?Set a strong ROMCHECKER_PASSWORD in .env}
+      ROMCHECKER_PATH_BASE: ${ROMCHECKER_PATH_BASE:-}
+      ROMCHECKER_TRUSTED_PROXIES: ${ROMCHECKER_TRUSTED_PROXIES:-}
+      AllowedHosts: ${ROMCHECKER_ALLOWED_HOSTS:-localhost;127.0.0.1}
+      ROMSORTER_VIRUSTOTAL_KEY: ${ROMSORTER_VIRUSTOTAL_KEY:-}
+      ROMSORTER_MALWAREBAZAAR_KEY: ${ROMSORTER_MALWAREBAZAAR_KEY:-}
+    volumes:
+      - "${ROM_LIBRARY:?Set ROM_LIBRARY to your host ROM folder}:/library"
+      - app-data:/data
+      - signatures:/var/lib/clamav:ro
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 2m
+  signature-updater:
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:beta}
+    restart: unless-stopped
+    entrypoint: ["freshclam"]
+    command: ["--daemon", "--foreground=true", "--config-file=/etc/clamav/freshclam.conf"]
+    volumes:
+      - signatures:/var/lib/clamav
+    healthcheck:
+      disable: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  app-data:
+  signatures:
