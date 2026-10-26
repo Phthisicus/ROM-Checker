@@ -33,7 +33,8 @@ public sealed record EngineSettings
 
 public sealed record Review(string Path, string Decision);
 public sealed record JobRequest(string Action, string? SourceId = null, string? Journal = null,
-    Review[]? Reviews = null, bool Confirm = false);
+    Review[]? Reviews = null, bool Confirm = false, string? BatchId = null, EngineSettings? Settings = null,
+    string[]? Selection = null, bool Organize = false);
 public sealed record Job(string Id, string Action, string Status, DateTimeOffset Created,
     DateTimeOffset? Finished, string? Error, JobRequest Request, EngineSettings Settings);
 public sealed record LoginRequest(string Password);

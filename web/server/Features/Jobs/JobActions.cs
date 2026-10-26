@@ -13,6 +13,8 @@ public static class JobActions
     private static readonly IReadOnlyDictionary<string, JobAction> Definitions =
         new Dictionary<string, JobAction>(StringComparer.Ordinal)
         {
+            ["detect"] = new("Collections"),
+            ["verify"] = new("Collections", ChangesFiles: true),
             ["scan"] = new("Verification"),
             ["inventory"] = new("Organization"),
             ["plan"] = new("Organization", SourceActions: ResultPreviews),

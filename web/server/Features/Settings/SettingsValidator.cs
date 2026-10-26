@@ -5,7 +5,7 @@ namespace RomChecker.Web.Features.Settings;
 
 public sealed class SettingsValidator(WebOptions options, LibraryPaths paths)
 {
-    public void Validate(EngineSettings settings)
+    public void Validate(EngineSettings settings, string? root = null)
     {
         if (settings.Layout is not ("ByConsole" or "Validity" or "Emulator" or "Frontend" or "RetroArch" or "Classic")
             || settings.Hasheous is not ("Off" or "Unverified" or "All")
@@ -23,6 +23,10 @@ public sealed class SettingsValidator(WebOptions options, LibraryPaths paths)
             || settings.ArchiveMaxDepth is < 0 or > 10
             || settings.ArchiveTimeoutSeconds is < 10 or > 3600)
             throw new RequestException("Engine limits are out of range.");
-        if (!string.IsNullOrEmpty(settings.DatFolder)) paths.AssertPath(settings.DatFolder, true);
+        if (!string.IsNullOrEmpty(settings.DatFolder))
+        {
+            if (root is null) paths.AssertPath(settings.DatFolder, true);
+            else LibraryPaths.AssertPath(root, settings.DatFolder, true);
+        }
     }
 }

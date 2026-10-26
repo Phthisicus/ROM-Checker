@@ -33,6 +33,14 @@ jobs:
       - name: API integration
         shell: pwsh
         run: ./web/tests/Api.Tests.ps1
+      - name: Collection engine and cache regressions
+        shell: pwsh
+        run: ./web/tests/CollectionEngine.Tests.ps1
+      - name: Start read-only SMB fixture
+        run: bash web/tests/start-smb-fixture.sh
+      - name: Storage, bulk transfers and SMB integration
+        shell: pwsh
+        run: ./web/tests/Storage.Tests.ps1 -SmbServer 127.0.0.1
       - name: Install browser
         working-directory: web/client
         run: npx playwright install --with-deps chromium
@@ -66,7 +74,16 @@ jobs:
           cache-to: type=gha,mode=max
       - name: Verify non-root runtime, subpath, and authentication
         run: |
-          docker run -d --name romchecker-ci -p 127.0.0.1:8080:8080 \
+          docker network create romchecker-ci-network
+          docker run -d --name rom-storage-ci --network romchecker-ci-network \
+            -v romchecker-storage-ci:/storage \
+            -e ROMCHECKER_ROLE=storage \
+            -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment romchecker:test
+          docker exec rom-storage-ci curl --fail --retry 20 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/healthz
+          docker run -d --name romchecker-ci --network romchecker-ci-network -p 127.0.0.1:8080:8080 \
+            -v romchecker-storage-ci:/storage \
+            -e ROMCHECKER_STORAGE_URL=http://rom-storage-ci:8080 \
+            -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment \
             -e ROMCHECKER_PASSWORD=ci-fixture-only-password \
             -e ROMCHECKER_PATH_BASE=/roms romchecker:test
           curl --fail --retry 20 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/roms/healthz
@@ -74,6 +91,12 @@ jobs:
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/roms/api/jobs)" = 401
           test "$(docker exec romchecker-ci id -u)" = 10001
           docker exec romchecker-ci pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          curl --fail -c "$RUNNER_TEMP/romchecker-cookies" -H 'X-RomChecker: 1' \
+            -H 'Content-Type: application/json' --data '{"password":"ci-fixture-only-password"}' \
+            http://127.0.0.1:8080/roms/api/login
+          curl --fail -b "$RUNNER_TEMP/romchecker-cookies" http://127.0.0.1:8080/roms/api/storage/batches | grep '\[\]'
       - name: Container logs
         if: always()
-        run: docker logs romchecker-ci || true
+        run: |
+          docker logs romchecker-ci || true
+          docker logs rom-storage-ci || true

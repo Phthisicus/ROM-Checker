@@ -13,6 +13,13 @@ using RomChecker.Web.Features.Jobs;
 using RomChecker.Web.Features.Library;
 using RomChecker.Web.Features.Reports;
 using RomChecker.Web.Features.Settings;
+using RomChecker.Web.Features.Storage;
+
+if (Environment.GetEnvironmentVariable("ROMCHECKER_ROLE") == "storage")
+{
+    await StorageHost.Run(args);
+    return;
+}
 
 var builder = WebApplication.CreateBuilder(args);
 string Env(string name, string fallback) => Environment.GetEnvironmentVariable(name) ?? fallback;
@@ -39,6 +46,9 @@ builder.Services.AddSingleton<Store>();
 builder.Services.AddSingleton<LibraryPaths>();
 builder.Services.AddSingleton<SettingsValidator>();
 builder.Services.AddSingleton<EngineRunner>();
+builder.Services.AddHttpClient("storage", client => client.Timeout = Timeout.InfiniteTimeSpan)
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10), AllowAutoRedirect = false });
+builder.Services.AddSingleton<StorageClient>();
 builder.Services.AddSingleton<JobService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<JobService>());
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(data, "keys")))
@@ -65,7 +75,7 @@ builder.Services.AddRateLimiter(rate =>
 });
 builder.Services.Configure<Microsoft.AspNetCore.Http.Json.JsonOptions>(json =>
     json.SerializerOptions.UnmappedMemberHandling = System.Text.Json.Serialization.JsonUnmappedMemberHandling.Disallow);
-builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = 2 * 1024 * 1024);
+builder.WebHost.ConfigureKestrel(kestrel => kestrel.Limits.MaxRequestBodySize = StorageOptions.ChunkBytes);
 var proxies = Env("ROMCHECKER_TRUSTED_PROXIES", "").Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
 if (proxies.Length > 0)
 {
@@ -131,8 +141,10 @@ app.MapGet("/healthz", () => Results.Ok(new { status = "ok" }));
 var api = app.MapAuthentication(options);
 api.MapSettings(options);
 api.MapLibrary(options);
+api.MapCollections();
 api.MapJobs();
 api.MapReports();
+api.MapStorage();
 var webRoot = Path.GetFullPath(Env("ROMCHECKER_WEB_ROOT", Path.Combine(engine, "web", "client", "dist")));
 if (Directory.Exists(webRoot))
 {

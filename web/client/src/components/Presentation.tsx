@@ -9,10 +9,10 @@ export function Badge({ value }: { value: string }) {
       : /completed|original|verified|clean|valid|moved/i.test(value) ? 'success' : 'neutral'
   return <span className={`badge ${tone}`}>{label(value || 'Unknown')}</span>
 }
-export function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
+export function Modal({ title, children, close, drawer = false }: { title: string; children: ReactNode; close: () => void; drawer?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
-  return <dialog ref={dialog} onCancel={close} aria-label={title}>
+  return <dialog ref={dialog} className={drawer ? 'file-drawer' : undefined} onCancel={close} aria-label={title}>
     <div className="dialog-heading"><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={close}><X size={20} /></button></div>
     {children}
   </dialog>

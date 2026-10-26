@@ -14,6 +14,7 @@ export function useLibrary(jobs: Job[], fail: (error: unknown) => void, notify: 
 
   const selected = jobs.find(job => job.id === resultId)
   useEffect(() => {
+    setResults(undefined)
     if (!resultId) return
     let alive = true
     const timer = setTimeout(() => {
@@ -23,8 +24,11 @@ export function useLibrary(jobs: Job[], fail: (error: unknown) => void, notify: 
     return () => { alive = false; clearTimeout(timer) }
   }, [resultId, query, category, consoleFilter, page, fail])
   useEffect(() => {
-    if (!resultId) { setSummary(null); return }
-    api<Detail>(`/jobs/${resultId}`).then(data => setSummary(data.summary)).catch(fail)
+    setSummary(null)
+    if (!resultId) return
+    let alive = true
+    api<Detail>(`/jobs/${resultId}`).then(data => { if (alive) setSummary(data.summary) }).catch(fail)
+    return () => { alive = false }
   }, [resultId, fail])
   function selectResults(id: string) { setResultId(id); setReviews([]); setPage(1); setCategory(''); setConsoleFilter(''); setQuery('') }
   function review(decision: string) {

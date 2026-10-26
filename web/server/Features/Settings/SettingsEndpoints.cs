@@ -15,6 +15,13 @@ public static class SettingsEndpoints
         });
         api.MapGet("/catalog", () => Results.File(Path.Combine(engine, "web", "engine", "consoles.json"), "application/json; charset=utf-8"));
         api.MapGet("/settings", (Store store) => store.Settings());
+        api.MapGet("/settings/integrations", () => new
+        {
+            virusTotal = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ROMSORTER_VIRUSTOTAL_KEY")),
+            malwareBazaar = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("ROMSORTER_MALWAREBAZAAR_KEY")),
+            approvedSmbHosts = (Environment.GetEnvironmentVariable("ROMCHECKER_SMB_HOSTS") ?? "")
+                .Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+        });
         api.MapPut("/settings", (EngineSettings settings, Store store, SettingsValidator validator) =>
         {
             validator.Validate(settings);

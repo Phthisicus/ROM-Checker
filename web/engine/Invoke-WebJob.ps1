@@ -26,6 +26,11 @@ if ($script:OnWindows) {
 $script:AppDir = Join-Path $request.DataDirectory 'engine'
 [void][IO.Directory]::CreateDirectory($script:AppDir)
 $script:SettingsPath = Join-Path $script:AppDir 'settings.json'
+$script:OnlineCachePath = Join-Path $script:AppDir 'online-cache.json'
+$script:OldVtCachePath = Join-Path $script:AppDir 'virustotal-cache.json'
+$script:OnlineCache = $null
+$script:OnlineCacheSaveWarning = $false
+$script:ServiceIssues = New-Object Collections.ArrayList
 $script:ProgressSink = {
     param($event)
     $temp = Join-Path $jobDir 'progress.tmp'
@@ -78,8 +83,12 @@ try {
         Assert-WebResults $results
     }
     $feature = $request.Feature
-    if ($feature -cnotin 'Verification','Organization','Archives','Recovery','Workflows') {
+    if ($feature -cnotin 'Verification','Organization','Archives','Recovery','Workflows','Collections') {
         throw "Unsupported feature: $feature"
+    }
+    if ($request.Action -in 'apply','unpack','undo','cleanup','workflow') {
+        $collectionIndex = Join-Path (Get-WorkDir) 'collection.json'
+        if (Test-Path -LiteralPath $collectionIndex) { Remove-Item -LiteralPath $collectionIndex }
     }
     . (Join-Path (Join-Path $PSScriptRoot 'Features') "$feature.ps1")
     if ($results.Count) {
@@ -91,7 +100,7 @@ try {
         $script:LastProgressSummary = $operationSummary
     }
     Export-Clixml -InputObject $results -LiteralPath (Join-Path $jobDir 'snapshot.xml') -Depth 40
-    $fields = 'FileName','FullName','Folder','Console','Category','Reason','Threats','Notes','Authenticity','IntegrityStatus','AntivirusStatus','MalwareStatus','DatStrength','Security','Sources','Libraries','Year','Publisher','Header','SHA256','SHA1','MD5','CRC32','Length','Target','Action','DupOf','SetId','CheckedUtc','AntivirusCheckedUtc'
+    $fields = 'FileName','FullName','Folder','Console','Category','Reason','Threats','Notes','Authenticity','IntegrityStatus','AntivirusStatus','MalwareStatus','DatStrength','Security','Sources','Libraries','Year','Publisher','Header','SHA256','SHA1','MD5','CRC32','Length','Target','Action','DupOf','SetId','CheckedUtc','AntivirusCheckedUtc','DatMatch','HashMatch','IdentificationStatus','IdentificationReason','CollectionId','Organization','HoldReason','Explanation'
     $publicResults = @($results | ForEach-Object {
         $item = $_ | Select-Object $fields
         $item | Add-Member NoteProperty Reviewable (-not $_.Lead -and $_.Category -ne 'Protected')
@@ -102,9 +111,9 @@ try {
     Write-WebJson $history (Join-Path $jobDir 'history.json')
     $warnings = if ($script:ScanErrors) { $script:ScanErrors.Count } else { 0 }
     $counters = if ($script:LastProgressSummary) { $script:LastProgressSummary.Counters } else { @{} }
-    $warnings += [int]$counters['Warnings']
+    $warnings += [int]$counters['Warnings'] + $script:ServiceIssues.Count
     $summary = [pscustomobject]@{ Count = $results.Count; Planned = @($results | Where-Object { $_.Target -and $_.Action -ne 'Moved' }).Count
-        Warnings = $warnings; Counters = $counters }
+        Warnings = $warnings; Counters = $counters; ServiceIssues = @($script:ServiceIssues) }
     Write-WebJson $summary (Join-Path $jobDir 'summary.json')
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)

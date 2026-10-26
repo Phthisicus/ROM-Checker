@@ -18,10 +18,10 @@ import { Badge, Empty, ProgressCard } from '../../components/Presentation'
 import type { ConfirmAction, StartJob, Tab } from '../../workspace'
 import { actions } from '../jobs/actions'
 
-type Props = { info?: Info; summary: Summary | null; selected?: Job; jobs: Job[]; active?: Job; progress: Progress | null; pending: boolean; start: StartJob; confirm: ConfirmAction; setTab: (tab: Tab) => void; setJobId: (id: string) => void }
-export default function OverviewView({ info, summary, selected, jobs, active, progress, pending, start, confirm, setTab, setJobId }: Props) {
+type Props = { scope?: string; info?: Info; summary: Summary | null; selected?: Job; jobs: Job[]; active?: Job; progress: Progress | null; pending: boolean; start: StartJob; confirm: ConfirmAction; setTab: (tab: Tab) => void; setJobId: (id: string) => void }
+export default function OverviewView({ scope, info, summary, selected, jobs, active, progress, pending, start, confirm, setTab, setJobId }: Props) {
   return <>
-          <div className="library-location"><FolderOpen size={18} /><span className="mono truncate" title={info?.library}>{info?.library ?? 'Loading library...'}</span><span className="badge neutral">Mounted library</span></div>
+          <div className="library-location"><FolderOpen size={18} /><span className="mono truncate" title={scope ?? info?.library}>{scope ?? info?.library ?? 'Loading library...'}</span><span className="badge neutral">{scope ? 'Batch working copy' : 'Mounted library'}</span></div>
           <div className="stats-grid">{[
             { title: 'Files in last result', value: summary?.Count ?? 0, icon: Gamepad2, sub: selected ? date(selected.created) : 'Start your first check' },
             { title: 'Planned moves', value: summary?.Planned ?? 0, icon: ListFilter, sub: 'Review before applying' },

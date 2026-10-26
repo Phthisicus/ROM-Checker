@@ -8,9 +8,11 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const [settings, setSettings] = useState<Settings>()
   const [consoles, setConsoles] = useState<{ Key: string; Name: string }[]>([])
   const [pending, setPending] = useState(false)
+  const [integrations, setIntegrations] = useState<{ virusTotal: boolean; malwareBazaar: boolean; approvedSmbHosts: string[] }>()
   const [browser, setBrowser] = useState(false)
   const [folders, setFolders] = useState<{ path: string; folders: { name: string; path: string; fullPath: string }[] }>()
   useEffect(() => {
+    api<NonNullable<typeof integrations>>('/settings/integrations').then(setIntegrations).catch(fail)
     Promise.all([api<Settings>('/settings'), api<typeof consoles>('/catalog')])
       .then(([value, catalog]) => { setSettings(value); setConsoles(catalog) }).catch(fail)
   }, [fail])
@@ -27,8 +29,17 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const toggle = (key: keyof Settings, title: string, text: string) => <label className="toggle-row" key={key}><span><strong>{title}</strong><small>{text}</small></span><input type="checkbox" role="switch" checked={settings[key] === true} onChange={e => update(key, e.target.checked)} /></label>
   const number = (key: keyof Settings, title: string, min: number, max: number) => <label key={key}>{title}<input type="number" min={min} max={max} required value={String(settings[key])} onChange={e => update(key, Number(e.target.value))} /></label>
   return <form onSubmit={submit}>
-    <div className="settings-grid"><section className="panel"><div className="section-heading"><div><h2>Library & organization</h2><p>Configure where files go, without renaming them.</p></div><FolderOpen size={22} /></div>
-      <label>Mounted library<input readOnly value={info?.library ?? ''} /><small className="muted">Set ROMCHECKER_LIBRARY on the server to change this root.</small></label>
+    <section className="panel"><h2>Simple by default. Detailed when you need it.</h2><p>Upload a collection, choose what to verify, and keep the results together. The verification dialog lets you change checks for one run without changing these defaults.</p>
+      {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Recommended. Incomplete protection holds affected working copies for review.')}
+      {toggle('autoDat', 'Automatic DAT references', 'Download console reference lists; ROM files are not uploaded.')}
+      {toggle('identifyUnknown', 'Identify unknown formats', 'Optional online fingerprint lookup for files without a known console.')}
+      <p className="small">Guided collections use console folders, preserve required related files, and report duplicates without deleting them. Advanced server-library settings below do not change these safeguards.</p></section>
+    <section className="panel"><h2>Connections & privacy</h2><p>Reference services receive fingerprints and platform metadata—not ROM files. Keep this application behind HTTPS when accessed beyond localhost.</p>
+      <dl className="server-info"><div><dt>VirusTotal</dt><dd>{integrations ? integrations.virusTotal ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div><div><dt>MalwareBazaar</dt><dd>{integrations ? integrations.malwareBazaar ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div>
+        <div><dt>Network shares</dt><dd>{integrations?.approvedSmbHosts.length ? integrations.approvedSmbHosts.join(', ') : 'No approved servers configured'}</dd></div></dl>
+      <p className="small">An administrator configures API keys and approved network-share servers on the server. Secrets are never returned to this browser. Share credentials are used for a live connection, not saved to disk.</p></section>
+    <details><summary>Advanced engine & server settings</summary><div className="settings-grid"><section className="panel"><div className="section-heading"><div><h2>Server library & organization</h2><p>Configure Expert workspace previews. No files are moved by changing settings.</p></div><FolderOpen size={22} /></div>
+      <label>Server library<input readOnly value={info?.library ?? ''} /><small className="muted">Set ROMCHECKER_LIBRARY on the server to change this root.</small></label>
       <div className="form-grid"><label>Console filter<select value={settings.console} onChange={e => update('console', e.target.value)}><option value="All">All consoles (automatic)</option>{consoles.map(c => <option key={c.Key} value={c.Key}>{c.Name}</option>)}</select></label>
         <label>Sorting layout<select value={settings.layout} onChange={e => update('layout', e.target.value)}>{['ByConsole', 'Validity', 'Emulator', 'Frontend', 'RetroArch', 'Classic'].map(layout => <option key={layout}>{layout}</option>)}</select></label>
         <label>Duplicate handling<select value={settings.duplicateMode} onChange={e => update('duplicateMode', e.target.value)}><option value="Move">Move to duplicates folder</option><option value="Report">Report only (sort normally)</option><option value="Off">Disable duplicate detection</option></select></label></div>
@@ -41,14 +52,11 @@ export default function SettingsView({ info, fail, saved }: Props) {
       <label>Custom DAT folder<div className="row"><input placeholder="Optional path inside the library" value={settings.datFolder} onChange={e => update('datFolder', e.target.value)} /><button type="button" onClick={() => browse()}>Browse</button></div></label>
       <div className="form-grid"><label>Hasheous lookup<select value={settings.hasheous} onChange={e => update('hasheous', e.target.value)}>{['Off', 'Unverified', 'All'].map(value => <option key={value}>{value}</option>)}</select></label>
         <label>Online malware lookup<select value={settings.onlineCheck} onChange={e => update('onlineCheck', e.target.value)}>{['Off', 'Risky', 'Unverified', 'All'].map(value => <option key={value}>{value}</option>)}</select></label></div>
-      {toggle('autoDat', 'Automatic DAT references', 'Download libretro verification and release metadata.')}
-      {toggle('identifyUnknown', 'Identify unknown formats', 'Try hash-based identification for unknown files.')}
       {toggle('retailOnly', 'Released retail games only', 'Flag demos, prototypes, homebrew, and unconfirmed releases.')}
       {toggle('requireDatMatch', 'Require trusted library matches', 'Do not treat a filename alone as authenticity evidence.')}
       {toggle('strict', 'Strict validation', 'Apply the engine strict checking policy.')}
       {toggle('resumeScans', 'Reuse unchanged local checks', 'Revalidate content with SHA-256; refresh online and AV evidence.')}
     </section><section className="panel"><div className="section-heading"><div><h2>Protection & limits</h2><p>Keep safeguards explicit and resource use bounded.</p></div></div>
-      {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Unavailable or incomplete protection is reported, never assumed clean.')}
       {toggle('protectAppFolders', 'Protect application folders', 'Recommended: avoid breaking installed emulators and games.')}
       {toggle('useFolderHints', 'Use folder hints', 'Use directory names to help resolve ambiguous formats.')}
       <div className="form-grid">{number('hashLimitMB', 'Hash limit (MB)', 1, 1048576)}{number('archiveMaxMB', 'Unpack limit (MB)', 1, 1048576)}{number('archiveMaxEntries', 'Maximum archive entries', 1, 100000)}{number('archiveMaxDepth', 'Nested archive depth', 0, 10)}{number('archiveTimeoutSeconds', 'Archive timeout (seconds)', 10, 3600)}</div>
@@ -56,8 +64,8 @@ export default function SettingsView({ info, fail, saved }: Props) {
       <dl className="server-info"><div><dt>Version</dt><dd>{info?.version}</dd></div><div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div><div><dt>Platform</dt><dd>{info?.platform}</dd></div><div><dt>Proxy base path</dt><dd>{info?.pathBase || '/'}</dd></div></dl>
       <div className="notice subtle"><ShieldAlert size={20} /><span>Online lookups send hashes and metadata, not ROM uploads. Configure ROMSORTER_VIRUSTOTAL_KEY and ROMSORTER_MALWAREBAZAAR_KEY as server secrets. Keys are never returned to this browser.</span></div>
       <p className="muted">Linux containers use ClamAV, not Windows Defender. Keep virus signatures updated. Use HTTPS and restrict access through your reverse proxy.</p>
-      <p className="muted">Workflow unpacking changes files; checking does not move them. Applying a preview always uses the settings saved with that preview.</p>
-    </section></div>
+      <p className="muted">Guided Verify & organize moves eligible working copies after checks. Check only never moves ROMs. Expert workflow extraction requires explicit approval; applying a preview uses its saved settings.</p>
+    </section></div></details>
     <div className="settings-save"><span className="muted">Settings apply to new operations. Existing previews retain their settings.</span><button className="primary" disabled={pending}>{pending ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}Save settings</button></div>
     {browser && <Modal title="Choose a DAT folder" close={() => setBrowser(false)}><p className="mono">{folders?.path}</p><button type="button" onClick={() => browse('.')}>Library root</button><div className="folder-browser">{folders?.folders.map(folder => <div className="row spread" key={folder.path}><button type="button" onClick={() => browse(folder.path)}><FolderOpen size={17} />{folder.name}</button><button type="button" onClick={() => { update('datFolder', folder.fullPath); setBrowser(false) }}>Select</button></div>)}</div><p className="small muted">Only directories within the mounted library are available. Links are excluded.</p></Modal>}
   </form>

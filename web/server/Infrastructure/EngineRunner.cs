@@ -3,21 +3,24 @@ using System.Text;
 using System.Text.Json;
 using RomChecker.Web.Features.Jobs;
 using RomChecker.Web.Features.Library;
+using RomChecker.Web.Features.Storage;
 
 namespace RomChecker.Web.Infrastructure;
 
-public sealed class EngineRunner(WebOptions options, LibraryPaths paths)
+public sealed class EngineRunner(WebOptions options, StorageClient storage)
 {
     public async Task Run(Job job, string directory, string? sourceDirectory, CancellationToken cancellation)
     {
-        paths.AssertPath(options.Root, true);
+        var root = job.Request.BatchId is null ? options.Root : storage.BatchRoot(job.Request.BatchId);
+        LibraryPaths.AssertPath(root, root, true);
         Directory.CreateDirectory(directory);
         var requestPath = Path.Combine(directory, "request.json");
         await File.WriteAllTextAsync(requestPath, JsonSerializer.Serialize(new
         {
             job.Action, Feature = JobActions.Get(job.Action).Feature,
-            Root = options.Root, DataDirectory = options.Data, job.Settings,
+            Root = root, DataDirectory = options.Data, job.Settings,
             SourceDirectory = sourceDirectory,
+            job.Request.Selection, job.Request.Organize,
             job.Request.Journal, job.Request.Reviews
         }, Json.Engine), cancellation);
         var start = new ProcessStartInfo(options.PowerShell)
@@ -33,6 +36,7 @@ public sealed class EngineRunner(WebOptions options, LibraryPaths paths)
         start.Environment["APPDATA"] = Path.Combine(options.Data, "config");
         start.Environment["XDG_CONFIG_HOME"] = Path.Combine(options.Data, "config");
         start.Environment.Remove("ROMCHECKER_PASSWORD");
+        start.Environment.Remove("ROMCHECKER_STORAGE_TOKEN");
         using var process = Process.Start(start) ?? throw new InvalidOperationException("PowerShell could not start.");
         process.StandardInput.Close();
         using var registration = cancellation.Register(() =>

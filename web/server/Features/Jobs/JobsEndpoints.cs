@@ -5,7 +5,7 @@ public static class JobsEndpoints
     public static void MapJobs(this RouteGroupBuilder api)
     {
         api.MapGet("/jobs", (Store store) => store.All());
-        api.MapPost("/jobs", (JobRequest request, JobService jobs) => Results.Accepted(value: jobs.Submit(request)));
+        api.MapPost("/jobs", async (JobRequest request, JobService jobs) => Results.Accepted(value: await jobs.Submit(request)));
         api.MapGet("/jobs/{id}", async (string id, Store store, JobService jobs) =>
             new { job = store.Get(id), progress = await jobs.ReadJson(id, "progress.json"), summary = await jobs.ReadJson(id, "summary.json") });
         api.MapPost("/jobs/{id}/cancel", (string id, JobService jobs) => { jobs.Cancel(id); return Results.Accepted(); });

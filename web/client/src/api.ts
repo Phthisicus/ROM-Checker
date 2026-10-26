@@ -34,13 +34,13 @@ export type Settings = {
 export type Info = { name: string; version: string; commit: string; library: string; pathBase: string; platform: string; antivirus: string }
 export type Job = {
   id: string; action: string; status: string; created: string; finished?: string; error?: string
-  request: { sourceId?: string; journal?: string }; settings: Settings
+  request: { sourceId?: string; journal?: string; batchId?: string; selection?: string[]; organize?: boolean }; settings: Settings
 }
 export type Progress = {
   Task: string; Phase: string; Done: number; Total: number; Percent: number; Unit: string
   Current: string; Detail: string; Elapsed: number; SecondsRemaining: number
 }
-export type Summary = { Count: number; Planned: number; Warnings: number; Counters?: Record<string, number> }
+export type Summary = { Count: number; Planned: number; Warnings: number; Counters?: Record<string, number>; ServiceIssues?: string[] }
 export type Detail = { job: Job; progress: Progress | null; summary: Summary | null }
 export type Result = {
   FileName: string; FullName: string; Folder: string; Console: string; Category: string; Reason: string

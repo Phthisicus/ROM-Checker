@@ -2016,7 +2016,14 @@ function Save-OnlineCache {
         if ([IO.File]::Exists($script:OnlineCachePath)) { [IO.File]::Replace($tmp,$script:OnlineCachePath,[NullString]::Value) }
         else { [IO.File]::Move($tmp,$script:OnlineCachePath) }
         if (Test-Path -LiteralPath $script:OldVtCachePath) { Remove-Item -LiteralPath $script:OldVtCachePath -ErrorAction SilentlyContinue }
-    } catch { Write-Warning "Cannot save online lookup progress: $($_.Exception.Message)" }
+    } catch {
+        if (-not $script:OnlineCacheSaveWarning) {
+            $message = "Cannot save online lookup progress: $($_.Exception.Message). Lookups can continue, but may be repeated next time."
+            Write-Warning $message
+            if ($null -ne $script:ServiceIssues) { [void]$script:ServiceIssues.Add($message) }
+            $script:OnlineCacheSaveWarning = $true
+        }
+    }
     finally { if (Test-Path -LiteralPath $tmp) { Remove-Item -LiteralPath $tmp } }
 }
 function Get-Cached([string]$Key, [int]$Days = 30) {
@@ -2153,7 +2160,7 @@ function Invoke-UnknownIdentification($Results) {
             Write-Warning "$($r.FileName): $($r.IdentificationReason)"
         }
     }
-    Set-ProgressCounter 'Online identified' @($candidates | Where-Object IdentificationStatus -eq 'Identified').Count
+    Set-ProgressCounter 'Previously unknown identified' @($candidates | Where-Object IdentificationStatus -eq 'Identified').Count
 }
 function Set-HasheousResult($r, $v) {
     Add-Source $r 'Hasheous'
@@ -2195,6 +2202,7 @@ function Invoke-HasheousCheck($Results) {
     Save-OnlineCache
     if ($stop) { Write-Host "  Hasheous stopped: $stop." -ForegroundColor Yellow }
     $n = @($cands | Where-Object HashMatch).Count
+    Update-RomProgress -Phase 'Hasheous identification' -Done $i -Total $todo.Count -Unit lookups -Detail "$n reference matches; cached results included" -Force
     Write-Host "  Hasheous: $n identified." -ForegroundColor Green
 }
 
@@ -2279,10 +2287,17 @@ function Get-OnlineCandidates($Results) {
 }
 
 function Invoke-OnlineCheck($Results) {
+    foreach ($r in $Results) { $r | Add-Member NoteProperty OnlineMalwareStatus $(if ($S.OnlineCheck -eq 'Off') { 'Skipped' } else { 'Not selected by policy' }) -Force }
     if ($S.OnlineCheck -eq 'Off') { return }
     $vtKey = Get-VtKey; $mbKey = Get-MbKey
-    if (-not $vtKey -and -not $mbKey) { Write-Host '  Virus lookup skipped: no VirusTotal or MalwareBazaar key set (Settings > Security).' -ForegroundColor Yellow; return }
     $cands = Get-OnlineCandidates $Results
+    if (-not $vtKey -and -not $mbKey) {
+        $message = 'Online malware checks are enabled but no VirusTotal or MalwareBazaar key is configured. These checks were unavailable.'
+        Write-Warning $message
+        if ($null -ne $script:ServiceIssues) { [void]$script:ServiceIssues.Add($message) }
+        foreach ($r in $cands) { $r.OnlineMalwareStatus = 'Unavailable' }
+        return
+    }
     if (-not $cands.Count) { Write-Host '  Virus lookup: no files need checking.' -ForegroundColor Green; return }
     foreach ($r in $cands) { if (-not $r.SHA256 -and $r.Length -le ([long]$S.HashLimitMB * 1MB)) { try { $r.SHA256 = Get-Sha256 $r.FullName } catch { } } }
     $cache = Get-OnlineCache
@@ -2332,6 +2347,14 @@ function Invoke-OnlineCheck($Results) {
         if ($stop) { Write-Host "  VirusTotal stopped early: $stop." -ForegroundColor Yellow }
     }
     Save-OnlineCache
+    foreach ($r in $cands) {
+        $vt = if ($vtKey -and $r.SHA256) { Get-Cached "vt:$($r.SHA256)" } else { $null }
+        $mb = if ($mbKey -and $r.SHA256) { Get-Cached "mb:$($r.SHA256)" 7 } else { $null }
+        $r.OnlineMalwareStatus = if ((-not $vtKey -or $vt.Status -in 'Found','Unknown') -and (-not $mbKey -or $mb.Status -in 'Found','Unknown')) { 'Completed' } else { 'Incomplete' }
+    }
+    if (@($cands | Where-Object OnlineMalwareStatus -eq 'Incomplete').Count -and $null -ne $script:ServiceIssues) {
+        [void]$script:ServiceIssues.Add('Some enabled online malware lookups did not complete. Affected files are held for review.')
+    }
     $bad = @($cands | Where-Object { $_.Threats -match 'VirusTotal|MalwareBazaar' }).Count
     Write-Host "  Virus lookup: done, $bad file(s) flagged." -ForegroundColor $(if ($bad) { 'Red' } else { 'Green' })
     foreach ($r in $cands) { if ($r.Security -in 'Malicious', 'Suspicious' -and $r.Category -ne 'Quarantine') { $r.Category = 'Quarantine'; $r.Reason = $r.Threats } }
@@ -2403,6 +2426,7 @@ function Get-ScanFiles {
         }
     }
     Update-RomProgress -Phase 'Finding files' -Done $n -Indeterminate -Detail 'Discovery finished'
+    if ($script:CollectionSelection) { $out = @($out | Where-Object { $script:CollectionSelection.ContainsKey([RomSorter.RomTools]::Plain($_.File.FullName)) }) }
     $out | Sort-Object { $_.File.FullName }
 }
 
@@ -2688,11 +2712,14 @@ function Invoke-ScanCore {
 
     $defHits = New-PathMap; $def = $null
     if ($S.DefenderScan) {
+        $antivirusWatch = [Diagnostics.Stopwatch]::StartNew()
         Update-RomProgress -Phase 'Antivirus scan' -Current $script:AntivirusName -Indeterminate
         Write-Host "  Running $script:AntivirusName scan (this can take a while)..." -ForegroundColor DarkCyan
         $def = Invoke-AntivirusScan $S.RootFolder
         $defHits = $def.Hits
         Write-Host "  ${script:AntivirusName}: $($def.Message)" -ForegroundColor $(if ($def.Hits.Count) { 'Red' } elseif ($def.Available) { 'Green' } else { 'Yellow' })
+        Set-ProgressCounter 'Antivirus seconds' ([int]$antivirusWatch.Elapsed.TotalSeconds)
+        if (-not $def.Available -and $null -ne $script:ServiceIssues) { [void]$script:ServiceIssues.Add("$script:AntivirusName did not complete: $($def.Message)") }
     }
 
     $results = New-Object Collections.Generic.List[object]; $i = 0; $resumed = 0; $fresh = 0; $rechecked = 0
@@ -2756,6 +2783,8 @@ function Invoke-ScanCore {
         $matchedCount++
     }
     Invoke-HasheousCheck $results
+    Set-ProgressCounter 'DAT matches' @($results | Where-Object DatMatch).Count
+    Set-ProgressCounter 'Hasheous matches' @($results | Where-Object HashMatch).Count
 
     Update-RomProgress -Phase 'Resolving verdicts and dependencies' -Indeterminate
     foreach ($r in $results) {
