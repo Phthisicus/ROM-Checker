@@ -54,7 +54,7 @@ jobs:
           dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
           cat "$RUNNER_TEMP/nuget-audit.json"
           jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
-      - uses: aquasecurity/trivy-action@0.36.0
+      - uses: aquasecurity/trivy-action@v0.36.0
         env:
           TRIVY_INCLUDE_DEV_DEPS: 'true'
         with:
@@ -140,7 +140,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Container vulnerability gate
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: romchecker:test
           scanners: vuln

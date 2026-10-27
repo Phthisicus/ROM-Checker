@@ -68,7 +68,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan development candidate
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
           scanners: vuln
@@ -184,7 +184,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan candidate container
-        uses: aquasecurity/trivy-action@0.36.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
           scanners: vuln
