@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Wait reliably for container startup before running smoke checks",
+  "description": "Container smoke checks now poll readiness within a bounded startup window, including transient connection resets from Docker's published port. Crashed containers fail immediately with their logs; containers that never become ready fail explicitly after the deadline. CI and release-image checks share the same readiness helper."
+}

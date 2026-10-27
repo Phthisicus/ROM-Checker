@@ -154,14 +154,14 @@ jobs:
             -v romchecker-storage-ci:/storage \
             -e ROMCHECKER_ROLE=storage \
             -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment romchecker:test
-          docker exec rom-storage-ci curl --fail --retry 20 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/healthz
+          bash .github/release-tools/wait-for-http.sh rom-storage-ci http://127.0.0.1:8080/healthz container
           docker run -d --name romchecker-ci --network romchecker-ci-network -p 127.0.0.1:8080:8080 \
             -v romchecker-storage-ci:/storage \
             -e ROMCHECKER_STORAGE_URL=http://rom-storage-ci:8080 \
             -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment \
             -e ROMCHECKER_PASSWORD=ci-fixture-only-password \
             -e ROMCHECKER_PATH_BASE=/roms romchecker:test
-          curl --fail --retry 20 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/roms/healthz
+          bash .github/release-tools/wait-for-http.sh romchecker-ci http://127.0.0.1:8080/roms/healthz
           curl --fail http://127.0.0.1:8080/roms/ | grep 'content="/roms"'
           test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/roms/api/jobs)" = 401
           test "$(docker exec romchecker-ci id -u)" = 10001

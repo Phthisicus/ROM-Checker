@@ -28,6 +28,8 @@ The `Required checks` job fails unless every gate succeeds:
 - Actual browser workflows, reverse-proxy subpath behavior, and isolated redesigned-library browser coverage.
 - Docker build, vulnerability scanning, non-root boot, authentication, and storage integration.
 
+Container readiness probes tolerate transient refused/reset connections for up to 60 seconds. A stopped container fails immediately with startup logs; a running container that never serves a successful health response fails at the deadline. CI tests both storage readiness inside its container and application readiness through the published host port.
+
 Container and dependency scanners block fixable **HIGH/CRITICAL** vulnerabilities; unfixed operating-system/library findings are not blockers in this initial policy. Review scan output instead of treating a passing gate as a guarantee of safety. Do not blanket-disable scanners to release. Any future exception must identify the CVE, justification, owner, and expiry and be reviewed like code. Trivy database/network errors fail the check rather than bypassing it.
 
 No publishing credentials are supplied to PR workflows. Do not change these jobs to `pull_request_target` or execute untrusted PR code with write credentials. Delivery gets publication permissions only after reusable CI succeeds. There is no publishing trigger for feature branches or tags.

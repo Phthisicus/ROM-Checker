@@ -14,7 +14,7 @@ test "$(docker inspect "$image" --format '{{index .Config.Labels "org.opencontai
 docker run -d --name "$name" \
   -e ROMCHECKER_PASSWORD=release-fixture-only-password \
   -e ROMCHECKER_PATH_BASE=/roms "$image" >/dev/null
-docker exec "$name" curl --fail --silent --retry 30 --retry-delay 2 --retry-connrefused http://127.0.0.1:8080/roms/healthz >/dev/null
+bash "$(dirname "$0")/wait-for-http.sh" "$name" http://127.0.0.1:8080/roms/healthz container
 test "$(docker exec "$name" id -u)" = 10001
 docker exec "$name" curl --fail --silent http://127.0.0.1:8080/roms/ | grep 'content="/roms"'
 test "$(docker exec "$name" curl --silent --output /dev/null --write-out '%{http_code}' http://127.0.0.1:8080/roms/api/jobs)" = 401
