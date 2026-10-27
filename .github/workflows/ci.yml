@@ -78,8 +78,7 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: '24'
-          cache: npm
-          cache-dependency-path: web/client/package-lock.json
+          package-manager-cache: false
       - name: Engine regressions
         shell: pwsh
         run: ./RomSorter.Tests.ps1
