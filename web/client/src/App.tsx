@@ -2,7 +2,7 @@ import {
   Activity,
   Check, CheckCircle2,
   ChevronRight,
-  Gamepad2, HardDrive, History, LayoutDashboard, ListFilter,
+  Gamepad2, HardDrive, History, LayoutDashboard, ListFilter, Link2,
   LoaderCircle, LogOut, Moon, Play,
   Settings2, Shield, ShieldAlert, Sun,
   Trash2,
@@ -19,6 +19,7 @@ import { Modal } from './components/Presentation'
 import Login from './features/authentication/Login'
 import { actions } from './features/jobs/actions'
 import JobsView from './features/jobs/JobsView'
+import ActivitySummary from './features/jobs/ActivitySummary'
 import FileDetails from './features/library/FileDetails'
 import LibraryView from './features/library/LibraryView'
 import { useLibrary } from './features/library/useLibrary'
@@ -27,17 +28,19 @@ import RecoveryView from './features/recovery/RecoveryView'
 import SettingsView from './features/settings/SettingsView'
 import StorageView from './features/storage/StorageView'
 import CollectionsView from './features/storage/CollectionsView'
+import CatalogView from './features/library/CatalogView'
+import RommView from './features/integrations/RommView'
 import type { Confirmation, Tab } from './workspace'
 
 const tabs = [
-  { name: 'Overview', icon: LayoutDashboard }, { name: 'Library', icon: Gamepad2 },
+  { name: 'Overview', icon: LayoutDashboard }, { name: 'ExpertLibrary', icon: Gamepad2 },
   { name: 'Changes', icon: ListFilter }, { name: 'Jobs', icon: Activity },
   { name: 'Recovery', icon: History }, { name: 'Settings', icon: Settings2 },
-  { name: 'Storage', icon: HardDrive },
+  { name: 'Library', icon: Gamepad2 }, { name: 'Storage', icon: HardDrive }, { name: 'Integrations', icon: Link2 },
 ] as const
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
-  const [tab, setTab] = useState<Tab>('Storage')
+  const [tab, setTab] = useState<Tab>('Library')
   const [expert, setExpert] = useState(() => localStorage.getItem('romchecker-expert') === 'true')
   const [legacyStorage, setLegacyStorage] = useState(false)
   const [info, setInfo] = useState<Info>()
@@ -114,7 +117,7 @@ export default function App() {
     }
     if (completed(job) && ['scan', 'inventory', 'workflow', 'plan', 'apply'].includes(job.action)) {
       setResultId(job.id); setPage(1); setReviews([])
-      setTab(job.action === 'plan' ? 'Changes' : 'Library')
+      setTab(job.action === 'plan' ? 'Changes' : 'ExpertLibrary')
     }
     if (completed(job)) setNotice(`${actions[job.action]} finished${job.status === 'completed-with-warnings' ? ' with warnings. Review the job log.' : '.'}`)
     else if (job.error) setError(job.error)
@@ -158,28 +161,31 @@ export default function App() {
   if (authenticated === null) return <div className="boot"><LoaderCircle className="spin" />Connecting to ROM Checker...</div>
   if (!authenticated) return <Login onLogin={() => { setAuthenticated(true); setError('') }} />
   return <div className="app-shell">
-    <aside className="sidebar"><a className="brand" href="#collections" onClick={() => setTab('Storage')}><span className="logo-mark"><Gamepad2 size={24} /></span><span>ROM<span className="brand-light">CHECKER</span><small>COLLECTION WORKSPACE</small></span></a>
-      <span className="nav-label">WORKSPACE</span><nav aria-label="Main navigation">{[...tabs.filter(item => item.name === 'Storage'), ...tabs.filter(item => ['Jobs', 'Settings'].includes(item.name)), ...tabs.filter(item => expert && !['Storage', 'Jobs', 'Settings'].includes(item.name))].map(({ name, icon: Icon }) => {
-        const title = ({ Storage: 'Collections', Jobs: 'Activity', Recovery: 'Undo changes', Overview: 'Server library', Library: 'Detailed results', Changes: 'Move previews', Settings: 'Settings' })[name]
+    <a className="skip-link" href="#main-content">Skip to content</a>
+    <aside className="sidebar"><a className="brand" href="#library" onClick={() => setTab('Library')}><span className="logo-mark"><Gamepad2 size={24} /></span><span>ROM<span className="brand-light">CHECKER</span><small>ONE LIBRARY. YOUR STORAGE.</small></span></a>
+      <span className="nav-label">WORKSPACE</span><nav aria-label="Main navigation">{[...['Library', 'Storage', 'Jobs', 'Integrations', 'Settings'].map(name => tabs.find(item => item.name === name)!), ...tabs.filter(item => expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name))].map(({ name, icon: Icon }) => {
+        const title = ({ Storage: 'Imports', Jobs: 'Activity', Recovery: 'Undo changes', Overview: 'Server tools', Library: 'Library', ExpertLibrary: 'Detailed results', Changes: 'Move previews', Settings: 'Settings', Integrations: 'Integrations' })[name]
         return <button key={name} aria-label={title} title={title} className={tab === name ? 'nav-item selected' : 'nav-item'} aria-current={tab === name ? 'page' : undefined} onClick={() => { setTab(name); setLegacyStorage(false) }}><Icon size={19} /><span>{title}</span>{name === 'Jobs' && active && <span className="live-dot" />}</button>
       })}</nav>
-      <button className="nav-item" aria-pressed={expert} onClick={() => { const value = !expert; setExpert(value); localStorage.setItem('romchecker-expert', String(value)); if (!value) { setLegacyStorage(false); setTab('Storage') } }}><Settings2 size={18} /><span>Expert workspace {expert ? 'on' : 'off'}</span></button>
+      <button className="nav-item" aria-label={`Expert workspace ${expert ? 'on' : 'off'}`} title={`Expert workspace ${expert ? 'on' : 'off'}`} aria-pressed={expert} onClick={() => { const value = !expert; setExpert(value); localStorage.setItem('romchecker-expert', String(value)); if (!value) { setLegacyStorage(false); setTab('Library') } }}><Settings2 size={18} /><span>Expert workspace {expert ? 'on' : 'off'}</span></button>
       <div className="sidebar-bottom"><div className="storage-label"><HardDrive size={18} /><strong>Your storage. Your files.</strong></div><p>Self-hosted folder & SMB imports.<br />Online checks use hashes and metadata.</p>
         <div className="row spread"><span className="version">v{info?.version ?? '...'}</span></div></div>
     </aside>
-    <div className="main-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /><strong>{tab === 'Storage' ? 'Collections' : tab === 'Jobs' ? 'Activity' : tab === 'Recovery' ? 'Undo changes' : tab}</strong></div>
+    <div className="main-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /><strong>{tab === 'Storage' ? 'Imports' : tab === 'Jobs' ? 'Activity' : tab === 'Recovery' ? 'Undo changes' : tab === 'ExpertLibrary' ? 'Detailed results' : tab === 'Overview' ? 'Server tools' : tab}</strong></div>
       <div className="row"><span className="server-status"><span className="live-dot" />Self-hosted</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Sign out" onClick={() => api('/logout', { method: 'POST' }).then(() => setAuthenticated(false)).catch(fail)}><LogOut size={18} /></button></div></header>
-      <main className="content">
-        {batchId && tab !== 'Storage' && <div className="notice subtle batch-scope"><HardDrive size={18} /><span>Current collection selected. Detailed results and recovery use this collection.</span><button onClick={() => { setBatchId(''); setTab('Overview') }}>Use server library instead</button></div>}
+      <main id="main-content" className="content" tabIndex={-1}>
+        {batchId && expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <div className="notice subtle batch-scope"><HardDrive size={18} /><span>Expert tools are scoped to the selected import. Your normal Library always includes all imports.</span><button onClick={() => { setBatchId(''); setTab('Overview') }}>Use server scope</button></div>}
         {error && <div className="notice error" role="alert"><ShieldAlert size={19} /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={17} /></button></div>}
         {notice && <div className="notice success" role="status"><CheckCircle2 size={18} /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={17} /></button></div>}
-        <div className="page-heading"><div><span className="eyebrow">YOUR COLLECTION, UNDERSTOOD</span><h1>{tab === 'Storage' ? 'Your collections' : tab === 'Jobs' ? 'Activity' : tab === 'Overview' ? 'Server library' : tab === 'Changes' ? 'Review your next move' : tab === 'Recovery' ? 'Undo changes & recovery' : tab === 'Settings' ? 'Make it your workspace' : tab}</h1>
-          <p>{tab === 'Overview' ? 'A clear picture of your ROMs. A safer way to keep them organized.' : tab === 'Library' ? 'Explore the evidence behind every file in your collection.' : tab === 'Changes' ? 'Nothing moves until you approve a completed preview.' : tab === 'Jobs' ? 'Follow each operation, from the first check to the last file.' : tab === 'Recovery' ? 'Recover journaled changes or reclaim verified archive space.' : tab === 'Storage' ? 'Import folders or SMB files, choose processing features, and download your results.' : 'Configure verification, sorting, and file-handling safeguards.'}</p></div>
-          {expert && tab !== 'Settings' && tab !== 'Storage' && <button className="primary" disabled={!!active || pending} onClick={() => start('scan')}><Play size={16} />Check library</button>}
-          {expert && tab === 'Storage' && <button onClick={() => setLegacyStorage(!legacyStorage)}>{legacyStorage ? 'Guided collections' : 'Advanced storage & extraction'}</button>}</div>
+        <div className="page-heading"><div><span className="eyebrow">YOUR LIBRARY, UNDERSTOOD</span><h1>{tab === 'Storage' ? 'Imports' : tab === 'Jobs' ? 'Activity' : tab === 'Overview' ? 'Server tools' : tab === 'Changes' ? 'Review your next move' : tab === 'Recovery' ? 'Undo changes & recovery' : tab === 'Settings' ? 'Settings' : tab === 'ExpertLibrary' ? 'Detailed results' : tab}</h1>
+          <p>{tab === 'Library' ? 'Every import, every console, one permanent home.' : tab === 'Integrations' ? 'Connect your verified library without giving up control.' : tab === 'Changes' ? 'Nothing moves until you approve a completed preview.' : tab === 'Jobs' ? 'Follow operations, worker progress, and service findings.' : tab === 'Recovery' ? 'Recover journaled changes or reclaim verified archive space.' : tab === 'Storage' ? 'Bring files into your library. Imports are source batches, not separate libraries.' : 'Configure verification, sorting, and file-handling safeguards.'}</p></div>
+          {expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <button className="primary" disabled={!!active || pending} onClick={() => start('scan')}><Play size={16} />Check library</button>}
+          {expert && tab === 'Storage' && <button onClick={() => setLegacyStorage(!legacyStorage)}>{legacyStorage ? 'Guided imports' : 'Advanced storage & extraction'}</button>}</div>
         {tab === 'Overview' && <OverviewView scope={batchId ? `Storage batch ${batchId}` : undefined} info={info} summary={summary} selected={selected} jobs={jobs} active={active} progress={progress} pending={pending} start={start} confirm={confirm} setTab={setTab} setJobId={setJobId} />}
-        {(tab === 'Library' || tab === 'Changes') && <LibraryView tab={tab} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
-        {tab === 'Jobs' && <JobsView jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} />}
+        {tab === 'Library' && <CatalogView fail={fail} imports={() => { setBatchId(''); setTab('Storage') }} jobs={jobs} active={active} progress={progress} changed={refresh} />}
+        {tab === 'Integrations' && <RommView fail={fail} />}
+        {(tab === 'ExpertLibrary' || tab === 'Changes') && <LibraryView tab={tab === 'ExpertLibrary' ? 'Library' : 'Changes'} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
+        {tab === 'Jobs' && <><ActivitySummary jobs={jobs} fail={fail} /><JobsView expert={expert} jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} /></>}
         {tab === 'Recovery' && <RecoveryView journals={journals} cleanup={cleanup} cleanupJob={cleanupJob} active={active} pending={pending} start={start} confirm={confirm} />}
         {tab === 'Settings' && <SettingsView info={info} fail={fail} saved={() => setNotice('Settings saved. New jobs use these settings; existing previews keep their original configuration.')} />}
         {tab === 'Storage' && (legacyStorage ? <StorageView batchId={batchId} select={setBatchId} start={start} active={!!active || pending} fail={fail} /> : <CollectionsView batchId={batchId} select={setBatchId} start={start} jobs={jobs} progress={progress} fail={fail} recovery={() => { setExpert(true); setTab('Recovery') }} />)}

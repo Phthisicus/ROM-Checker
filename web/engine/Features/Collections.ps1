@@ -29,6 +29,36 @@ function Get-CollectionHold($row) {
     if (-not ($row.DatMatch -or $row.HashMatch -or $row.Header -eq 'Valid' -or $row.Integrity -eq 'OK' -or $row.Lead)) { return 'There is not enough integrity evidence to organize automatically.' }
     return ''
 }
+function Set-CollectionDependencyEvidence($rows) {
+    $byPath = New-PathMap
+    foreach ($row in $rows) { $byPath[$row.FullName] = $row }
+    foreach ($row in $rows) {
+        $complete = $true; $conflict = $false
+        if ($script:SetDescExt -contains [IO.Path]::GetExtension($row.FileName).ToLowerInvariant()) {
+            try {
+                $names = @(Get-SetMembers $row.FullName)
+                if (-not $names.Count) { $complete = $false }
+                $prefix = Get-DirectoryPrefix (Split-Path $row.FullName)
+                foreach ($name in $names) {
+                    $full = [IO.Path]::GetFullPath((Join-Path (Split-Path $row.FullName) (Convert-RelativePath $name)))
+                    $member = $byPath[$full]
+                    if (-not $full.StartsWith($prefix, $script:PathComparison) -or -not $member) { $complete = $false; continue }
+                    if ((Get-Top $member).FullName -ne (Get-Top $row).FullName) { $conflict = $true }
+                    if ($member.Console -ne '-' -and $row.Console -ne '-' -and $member.Console -ne $row.Console) { $conflict = $true }
+                }
+            } catch { $complete = $false }
+        }
+        Set-CollectionProperty $row 'DependenciesComplete' $complete
+        Set-CollectionProperty $row 'DependencyConflict' $conflict
+    }
+    foreach ($unit in @($rows | Group-Object { (Get-Top $_).FullName })) {
+        $complete = -not @($unit.Group | Where-Object { -not $_.DependenciesComplete }).Count
+        $conflict = [bool]@($unit.Group | Where-Object DependencyConflict).Count
+        foreach ($row in $unit.Group) {
+            $row.DependenciesComplete = $complete; $row.DependencyConflict = $conflict
+        }
+    }
+}
 function Save-Collection($rows) {
     foreach ($row in $rows) {
         Set-CollectionProperty $row 'Explanation' (Get-CollectionExplanation $row)
@@ -39,15 +69,19 @@ function Save-Collection($rows) {
         Set-CollectionProperty $row 'GroupId' $group
     }
     [void][IO.Directory]::CreateDirectory((Get-WorkDir))
-    Write-AtomicClixml @($rows) $collectionPath
+    for ($attempt = 0; ; $attempt++) {
+        try { Write-AtomicClixml @($rows) $collectionPath; break }
+        catch [IO.IOException] {
+            if ($attempt -ge 5) { throw }
+            Start-Sleep -Milliseconds (50 * ($attempt + 1))
+        }
+    }
     $fields = 'CollectionId','GroupId','OriginalRelative','RelativePath','Console','ConsoleName','ConsoleFolder','FileName','Length',
         'Category','Reason','Notes','Threats','Security','Header','IntegrityStatus','AntivirusStatus','MalwareStatus',
         'Authenticity','DatMatch','HashMatch','DatStrength','IdentificationStatus','IdentificationReason','Sources','OnlineMalwareStatus',
-        'SHA256','SHA1','MD5','CRC32','CheckedUtc','Organization','HoldReason','Explanation'
-    $temp = "$collectionJson.tmp"
-    Write-WebJson @($rows | Select-Object $fields) $temp
-    if ([IO.File]::Exists($collectionJson)) { [IO.File]::Replace($temp, $collectionJson, [NullString]::Value) }
-    else { [IO.File]::Move($temp, $collectionJson) }
+        'SHA256','SHA1','MD5','CRC32','CheckedUtc','Organization','HoldReason','Explanation','Integrity','DupOf',
+        'DependenciesComplete','DependencyConflict','CheckPolicy'
+    Write-AtomicWebJson @($rows | Select-Object $fields) $collectionJson
 }
 $previous = @()
 if (Test-Path -LiteralPath $collectionPath) { $previous = @(Import-Clixml -LiteralPath $collectionPath | ForEach-Object { $_ }) }
@@ -79,6 +113,12 @@ if ($request.Action -eq 'detect') {
         $old = $byPath[$_.FullName]
         if (-not $_.CollectionId -and $old) { $old } else { $_ }
     })
+    # Inventory companion links may point at rows replaced by their completed snapshots above.
+    $currentByPath = New-PathMap
+    foreach ($row in $rows) { $currentByPath[$row.FullName] = $row }
+    foreach ($row in $rows) {
+        if ($row.Lead -and $currentByPath.ContainsKey($row.Lead.FullName)) { $row.Lead = $currentByPath[$row.Lead.FullName] }
+    }
     # Detection groups dependencies; it is not a verification result.
     Join-Sets $rows
     Save-Collection $rows
@@ -113,9 +153,19 @@ elseif ($request.Action -eq 'verify') {
         $old = $byPath[$row.FullName]
         Set-CollectionProperty $row 'CollectionId' $old.CollectionId
         Set-CollectionProperty $row 'OriginalRelative' $old.OriginalRelative
+        Set-CollectionProperty $row 'CheckPolicy' ([pscustomobject]@{
+            DefenderScan = $S.DefenderScan; OnlineCheck = $S.OnlineCheck; RequireDatMatch = $S.RequireDatMatch
+        })
         Set-CollectionProperty $row 'Organization' 'Checked only'
         Set-CollectionProperty $row 'HoldReason' (Get-CollectionHold $row)
         if ($row.HoldReason) { $row.Organization = 'Held for review' }
+    }
+    Set-CollectionDependencyEvidence $verified
+    foreach ($row in $verified) {
+        if (-not $row.DependenciesComplete -or $row.DependencyConflict) {
+            $row.HoldReason = 'Dependencies are missing, unsafe, or conflicting. The complete unit is kept in place.'
+            $row.Organization = 'Held for review'
+        }
     }
     if ($request.Organize) {
         # A failed member holds its entire disc/companion unit in place.

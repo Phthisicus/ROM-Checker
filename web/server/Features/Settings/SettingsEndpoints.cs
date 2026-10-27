@@ -13,7 +13,7 @@ public static class SettingsEndpoints
             library = root, pathBase, platform = OperatingSystem.IsWindows() ? "Windows" : "Linux",
             antivirus = OperatingSystem.IsWindows() ? "Windows Defender" : "ClamAV"
         });
-        api.MapGet("/catalog", () => Results.File(Path.Combine(engine, "web", "engine", "consoles.json"), "application/json; charset=utf-8"));
+        api.MapGet("/consoles", () => Results.File(Path.Combine(engine, "web", "engine", "consoles.json"), "application/json; charset=utf-8"));
         api.MapGet("/settings", (Store store) => store.Settings());
         api.MapGet("/settings/integrations", () => new
         {

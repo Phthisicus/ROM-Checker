@@ -110,7 +110,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
   }
   async function upload(files: File[]) {
     if (!files.length || locked) return
-    if (collection?.prepared) { fail(new Error('Prepared collections are sealed. Upload additional ROMs into a new collection.')); return }
+    if (collection?.prepared) { fail(new Error('Prepared imports are sealed. Upload additional ROMs into a new import; they join the same library.')); return }
     const abort = new AbortController(); controller.current = abort
     setPending(true); setMessage('')
     let id = batchId
@@ -124,7 +124,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
       await api(`/storage/batches/${id}/prepare`, { method: 'POST' })
       setMessage('Upload complete. Preparing your working copy, then detecting consoles. Originals remain unchanged.')
     } catch (error) {
-      if (abort.signal.aborted) setMessage('Upload paused. Re-select the same folder in this collection to resume. Completed chunks are retained.')
+      if (abort.signal.aborted) setMessage('Upload paused. Re-select the same folder in this import to resume. Completed chunks are retained.')
       else fail(error)
     } finally { controller.current = null; setPending(false); await refresh().catch(fail) }
   }
@@ -148,8 +148,8 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
     {...{ webkitdirectory: '' }} disabled={locked || !!collection?.prepared} onChange={event => {
       const files = Array.from(event.target.files ?? []); event.target.value = ''; void upload(files)
     }} />
-  if (enabled === false) return <section className="panel"><h2>Collections need the storage service</h2><p>An administrator must configure collection storage. The server library is still available in the Expert workspace.</p></section>
-  if (enabled === undefined) return <p role="status"><LoaderCircle className="spin" size={18} /> Connecting to your collections...</p>
+  if (enabled === false) return <section className="panel"><h2>Imports need the storage service</h2><p>An administrator must configure import storage. Your existing catalog remains available in Library.</p></section>
+  if (enabled === undefined) return <p role="status"><LoaderCircle className="spin" size={18} /> Connecting to your imports...</p>
   return <div className="collections-workspace">
     {fileInput}
     {!collection ? <>
@@ -160,42 +160,42 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
         }
         void upload(Array.from(event.dataTransfer.files))
       }}>
-        <div className="hero-symbol"><Upload size={30} /></div><div><span className="eyebrow">YOUR NEXT COLLECTION STARTS HERE</span><h2>A folder full of games. A little more order.</h2>
+        <div className="hero-symbol"><Upload size={30} /></div><div><span className="eyebrow">ADD TO YOUR ONE LIBRARY</span><h2>A folder full of games. A little more order.</h2>
           <p>Upload mixed-console ROMs. We group them by console, explain the findings, and organize verified working copies. Your originals stay untouched.</p></div>
-        <label>Collection name <span className="muted">(optional)</span><input value={name} onChange={event => setName(event.target.value)} maxLength={120} placeholder="For example, My retro collection" /></label>
+        <label>Import name <span className="muted">(optional)</span><input value={name} onChange={event => setName(event.target.value)} maxLength={120} placeholder="For example, October folder upload" /></label>
         <div className="row wrap"><button className="primary" disabled={locked} onClick={() => uploadInput.current?.click()}><Upload size={17} />Upload ROMs / Choose folder</button>
           <button disabled={locked} onClick={() => setNetwork(!network)}><Network size={17} />Import from network share</button></div>
         <p className="small muted">You can also drop individual files here. Folder picking preserves subfolders. ROMs stay on your own storage; online verification is optional.</p>
       </section>
-      <div className="section-heading"><div><h2>Your collections</h2><p>Continue where you left off.</p></div><span>{collections.length} collection{collections.length === 1 ? '' : 's'}</span></div>
-      {collections.length === 0 && <div className="panel empty-state"><Gamepad2 size={30} /><h3>No collections yet</h3><p>Choose a folder above to get started. No files are moved from your computer.</p></div>}
+      <div className="section-heading"><div><h2>Import history</h2><p>Source batches feeding your single Library. Continue interrupted uploads here.</p></div><span>{collections.length} import{collections.length === 1 ? '' : 's'}</span></div>
+      {collections.length === 0 && <div className="panel empty-state"><Gamepad2 size={30} /><h3>No imports yet</h3><p>Choose a folder above to get started. No files are moved from your computer.</p></div>}
       <div className="collection-grid">{collections.map(item => <button className="collection-card panel" key={item.id} onClick={() => select(item.id)}>
         <div className="row spread"><FolderOpen size={23} /><span className="status-pill">{label(item.status === 'ready' ? 'Ready to open' : item.status)}</span></div>
-        <h3>{item.name}</h3><p>{item.files.toLocaleString()} files · {bytes(item.bytes)} originals</p><span className="text-button">Open collection →</span>
+        <h3>{item.name}</h3><p>{item.files.toLocaleString()} files · {bytes(item.bytes)} originals</p><span className="text-button">Open import →</span>
       </button>)}</div>
     </> : <>
-      <div className="row spread"><button disabled={pending} onClick={() => select('')}><ArrowLeft size={16} />All collections</button>
+      <div className="row spread"><button disabled={pending} onClick={() => select('')}><ArrowLeft size={16} />All imports</button>
         <div className="row wrap"><button disabled={locked} onClick={() => { setName(collection.name); setRenaming(true) }}>Rename</button>
-          <button className="danger-button" disabled={locked} onClick={() => setDeleting(true)}><Trash2 size={16} />Delete collection</button></div></div>
+          <button className="danger-button" disabled={locked} onClick={() => setDeleting(true)}><Trash2 size={16} />Delete import</button></div></div>
       <section className="panel collection-heading">
-        <div className="section-heading"><div><span className="eyebrow">YOUR COLLECTION</span><h2>{collection.name}</h2><p>{collection.files.toLocaleString()} files · {bytes(collection.bytes)} originals · Consoles detected: {data?.groups.filter(group => group.key !== '-').length ?? 0}</p></div>
+        <div className="section-heading"><div><span className="eyebrow">IMPORT SOURCE BATCH</span><h2>{collection.name}</h2><p>{collection.files.toLocaleString()} files · {bytes(collection.bytes)} originals · Consoles detected: {data?.groups.filter(group => group.key !== '-').length ?? 0}</p></div>
           <button className="primary" disabled={locked || !ready || !data?.detected || !data.total} onClick={() => prepareVerification()}><Play size={16} />Verify everything</button></div>
-        <div className="journey" aria-label="Collection workflow">{['Upload', 'Detect consoles', 'Verify', 'Organize', 'Download'].map((step, index) => <span key={step} className={(index === 0 && collection.files > 0 || index === 1 && data?.detected || index === 2 && data?.checkedFiles || index === 3 && data?.organized) ? 'step-done' : ''}>{index + 1}. {step}</span>)}</div>
+        <div className="journey" aria-label="Import workflow">{['Upload', 'Detect consoles', 'Verify', 'Organize', 'Download'].map((step, index) => <span key={step} className={(index === 0 && collection.files > 0 || index === 1 && data?.detected || index === 2 && data?.checkedFiles || index === 3 && data?.organized) ? 'step-done' : ''}>{index + 1}. {step}</span>)}</div>
         <p className="small"><Shield size={14} /> Original uploads are preserved. Console grouping is provisional until verification. Nothing is deleted automatically.</p>
         {collection.error && <div className="notice error" role="alert"><AlertTriangle size={18} />{collection.error}</div>}
         {!collection.prepared && <div className="upload-collection">
-          <p>{collection.status === 'uploading' ? 'Continue or resume this upload by choosing the same folder. Once prepared, this collection is sealed; add more ROMs in a new collection.' : 'Preparing or importing files. You can leave this page and return later.'}</p>
+          <p>{collection.status === 'uploading' ? 'Continue or resume this upload by choosing the same folder. Once prepared, this import is sealed; additional imports join your existing Library.' : 'Preparing or importing files. You can leave this page and return later.'}</p>
           <div className="row wrap"><button disabled={locked || collection.status !== 'uploading'} onClick={() => uploadInput.current?.click()}><Upload size={16} />Upload / resume folder</button>
             <button disabled={locked || !collection.files || !['uploading', 'failed'].includes(collection.status)} onClick={() => run(async () => { await api(`/storage/batches/${batchId}/prepare`, { method: 'POST' }) })}>Finish import & detect consoles</button>
             <button disabled={locked || collection.files > 0} onClick={() => setNetwork(!network)}><Network size={16} />Network share</button></div>
         </div>}
         {capacity && <details><summary><HardDrive size={14} /> Storage & retention</summary><p>Originals: {bytes(capacity.originalBytes)} · Working copy and reports: {bytes(capacity.processingBytes)} · Free disk space: {bytes(capacity.availableBytes)}</p>
           {!collection.prepared && <p>Preparation needs approximately {bytes(capacity.preparationBytes)} extra, plus {bytes(capacity.reserveBytes)} reserved free space. Incomplete uploads must finish first.</p>}
-          <p>Files remain until you explicitly delete this collection. Deletion also removes reports and undo journals.</p></details>}
+          <p>Files remain until you explicitly delete this import. Deletion removes these files from Library, along with reports and undo journals. RomM files are not deleted.</p></details>}
       </section>
       {transfer && <section className="panel" role="status"><h3>{transfer.done === transfer.total ? 'Upload complete' : 'Uploading your ROMs'}</h3><progress aria-label="Upload progress" max={Math.max(1, transfer.totalBytes)} value={transfer.bytes} /><p>{transfer.done} / {transfer.total} files · {bytes(transfer.bytes)} / {bytes(transfer.totalBytes)}</p><p className="break-path">{transfer.file}</p>
         {controller.current && <button onClick={() => controller.current?.abort()}>Pause upload</button>}</section>}
-      {busyHere && <section className="panel operation-progress" role="status"><div className="row"><LoaderCircle className="spin" size={19} /><h3>{active.action === 'detect' ? 'Detecting consoles' : 'Checking your collection'}</h3></div>
+      {busyHere && <section className="panel operation-progress" role="status"><div className="row"><LoaderCircle className="spin" size={19} /><h3>{active.action === 'detect' ? 'Detecting consoles' : 'Checking this import'}</h3></div>
         <p>{progress?.Phase || 'Starting…'}{progress?.Detail ? ` · ${progress.Detail}` : ''}</p>
         {progress && progress.Total > 0 ? <progress max={progress.Total} value={progress.Done} /> : <p className="muted">Working · remaining time unknown</p>}
         {progress?.Elapsed != null && <p className="small">{Math.round(progress.Elapsed)} seconds elapsed · {progress.SecondsRemaining > 0 ? `about ${Math.ceil(progress.SecondsRemaining)} seconds remaining` : 'No reliable remaining-time estimate yet'}</p>}
@@ -203,7 +203,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
       {latest && !jobBusy(latest.job) && <section className={`notice ${completed(latest.job) ? 'subtle' : 'error'}`} role="status"><span>{completed(latest.job) ? latest.job.action === 'detect' ? 'Console grouping ready. Choose what to verify below.' : `Operation complete. ${latest.summary?.Count ?? 0} files processed. Your original uploads are unchanged.` : latest.job.error || 'Operation did not finish. Review Activity and undo journals before retrying.'}</span></section>}
       {!!latest?.summary?.ServiceIssues?.length && <section className="notice error" role="alert"><AlertTriangle size={18} /><div><strong>Some services did not complete</strong>{latest.summary.ServiceIssues.map(issue => <p key={issue}>{issue}</p>)}<p>These are application issues, not proof that a ROM is defective. See Activity for technical details.</p></div></section>}
       {data?.detected ? <>
-        <div className="collection-stats" aria-label="Collection summary">{[
+        <div className="collection-stats" aria-label="Import summary">{[
           ['Checked', data.checkedFiles], ['DAT matches', data.datMatches], ['Online matches', data.onlineMatches],
           ['Needs attention', data.attention], ['Threats / suspicious', data.threats], ['Organized', data.organized],
         ].map(([title, value]) => <div className="panel" key={title}><strong>{value}</strong><span>{title}</span></div>)}</div>
@@ -240,23 +240,23 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
           <div className="row spread"><span className="small">{data.filtered.toLocaleString()} matching files · Page {page} / {Math.max(1, Math.ceil(data.filtered / data.size))}</span><div className="row"><button disabled={page === 1} onClick={() => setPage(page - 1)}>Previous</button><button disabled={page * data.size >= data.filtered} onClick={() => setPage(page + 1)}>Next</button></div></div>
         </section>
         {selected.length > 0 && <div className="selection-bar"><span><strong>{selected.length}</strong> files selected · required companions are included automatically</span><div className="row"><button onClick={() => setSelected([])}>Clear</button><button className="primary" disabled={locked || !ready} onClick={() => prepareVerification(selected)}>Verify selected</button></div></div>}
-        <section className="panel"><div className="section-heading"><div><h2>Take your collection with you</h2><p>Full downloads include pending and held files, reports, and recovery journals. Console ZIPs contain files already organized in that console folder.</p></div><Download size={22} /></div>
-          <div className="row wrap">{ready && !locked && <a className="button primary" href={downloadUrl(batchId, '')} download>Download complete collection</a>}<button disabled={locked} onClick={recovery}>Undo changes & recovery</button></div></section>
+        <section className="panel"><div className="section-heading"><div><h2>Download this import</h2><p>Full downloads include pending and held files, reports, and recovery journals. Console ZIPs contain files already organized in that console folder.</p></div><Download size={22} /></div>
+          <div className="row wrap">{ready && !locked && <a className="button primary" href={downloadUrl(batchId, '')} download>Download complete import</a>}<button disabled={locked} onClick={recovery}>Undo changes & recovery</button></div></section>
       </> : ready && <section className="panel"><h3>Get your ROMs ready</h3><p>Detecting consoles groups files without moving them or claiming they are verified.</p><button disabled={locked} onClick={() => start('detect', { batchId })}>Detect consoles</button></section>}
     </>}
     {message && <div className="notice subtle" role="status">{message}</div>}
-    {network && <section className="panel"><div className="section-heading"><h2>Network share import</h2><button aria-label="Close network import" onClick={() => setNetwork(false)}><X size={16} /></button></div><p>Create an empty collection below, connect to an approved share, then finish the import in the collection workspace.</p>
+    {network && <section className="panel"><div className="section-heading"><h2>Network share import</h2><button aria-label="Close network import" onClick={() => setNetwork(false)}><X size={16} /></button></div><p>Create an empty import below, connect to an approved share, then finish the import. These files join your existing Library.</p>
       <StorageView batchId={batchId} select={select} start={start} active={locked} fail={fail} importOnly /></section>}
-    {renaming && collection && <Modal title="Rename collection" close={() => setRenaming(false)}><form onSubmit={event => { event.preventDefault(); void run(async () => {
+    {renaming && collection && <Modal title="Rename import" close={() => setRenaming(false)}><form onSubmit={event => { event.preventDefault(); void run(async () => {
       await api(`/storage/batches/${batchId}/rename`, { method: 'POST', body: JSON.stringify({ name }) }); setRenaming(false)
-    }) }}><label>Collection name<input value={name} required maxLength={120} onChange={event => setName(event.target.value)} /></label><button className="primary" disabled={pending}>Save name</button></form></Modal>}
-    {deleting && collection && <Modal title={`Delete ${collection.name}?`} close={() => setDeleting(false)}><div className="notice error"><Trash2 size={20} />This permanently removes original uploads, working copies, reports, and undo journals. This cannot be undone.</div><p>Downloaded files elsewhere are unaffected. Make sure you have a backup.</p>
-      <button className="danger-button" disabled={pending} onClick={() => run(async () => { await api(`/storage/batches/${batchId}`, { method: 'DELETE' }); setDeleting(false); select('') })}>Permanently delete this collection</button></Modal>}
+    }) }}><label>Import name<input value={name} required maxLength={120} onChange={event => setName(event.target.value)} /></label><button className="primary" disabled={pending}>Save name</button></form></Modal>}
+    {deleting && collection && <Modal title={`Delete ${collection.name}?`} close={() => setDeleting(false)}><div className="notice error"><Trash2 size={20} />This permanently removes this import’s files from your Library, including original uploads, working copies, reports, and undo journals. This cannot be undone.</div><p>RomM and downloaded files elsewhere are unaffected. This does not delete your Library or other imports. Make sure you have a backup.</p>
+      <button className="danger-button" disabled={pending} onClick={() => run(async () => { await api(`/storage/batches/${batchId}`, { method: 'DELETE' }); setDeleting(false); select('') })}>Permanently delete this import</button></Modal>}
     {options && settings && <Modal title={`Verify ${options.count} selected file${options.count === 1 ? '' : 's'}`} close={() => setOptions(undefined)}>
       <p>Related tracks and companion files are included automatically. Your original uploads will not change.</p>
       <label>What should happen after checking?<select aria-label="Verification preset" value={preset} onChange={event => setPreset(event.target.value)}>
         <option value="organize">Verify & organize — Recommended</option><option value="check">Check only — Do not move files</option><option value="custom">Custom checks & organization</option></select></label>
-      <p>{preset === 'check' ? 'Results are saved in this collection. No ROM files are moved.' : 'Eligible working copies are automatically organized into console folders. Unresolved identities, failed enabled checks, unsafe content, and integrity findings are held for review. No files are deleted or overwritten.'}</p>
+      <p>{preset === 'check' ? 'Results are saved for this import and appear in your Library. No ROM files are moved.' : 'Eligible working copies are automatically organized into console folders. Unresolved identities, failed enabled checks, unsafe content, and integrity findings are held for review. No files are deleted or overwritten.'}</p>
       <div className="check-overview"><p><Shield size={16} />Local antivirus: <strong>{settings.defenderScan ? 'Enabled' : 'Skipped'}</strong></p><p>Reference downloads: <strong>{settings.autoDat ? 'Enabled' : 'Skipped'}</strong> · Online identity: <strong>{settings.hasheous === 'Off' && !settings.identifyUnknown ? 'Skipped' : 'Enabled'}</strong></p><p>Optional online malware checks: <strong>{settings.onlineCheck === 'Off' ? 'Skipped' : 'Enabled when API keys are configured'}</strong></p></div>
       <details open={preset === 'custom'}><summary><Settings2 size={15} />Advanced checks</summary><div className="advanced-checks">
         {(['defenderScan', 'autoDat', 'identifyUnknown', 'requireDatMatch', 'strict', 'resumeScans', 'sortByCategory'] as const).map(key => <label className="row" key={key}><input type="checkbox" checked={settings[key]} onChange={event => setSettings({ ...settings, [key]: event.target.checked })} />{{

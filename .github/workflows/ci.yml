@@ -1,14 +1,73 @@
 name: CI
 on:
   pull_request:
-    branches: [beta, main]
+    branches: [development, beta, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_call:
 permissions:
   contents: read
 jobs:
+  release-policy:
+    name: Release policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Release automation regressions
+        run: node --test .github/release-tools/release.test.mjs
+      - name: Validate release-note entries
+        run: node .github/release-tools/release.mjs validate
+      - name: Check PR promotion and title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.base_ref }}
+          PR_HEAD: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_BASE_REPO: ${{ github.repository }}
+        run: node .github/release-tools/policy.mjs
+      - name: Require append-only release notes on feature and hotfix PRs
+        if: github.event_name == 'pull_request' && (github.base_ref == 'development' || startsWith(github.head_ref, 'hotfix/'))
+        env:
+          TARGET: ${{ github.base_ref }}
+        run: node .github/release-tools/release.mjs validate "origin/$TARGET"
+      - name: Check workflow definitions
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - name: Audit direct and transitive NuGet packages
+        run: |
+          dotnet restore web/server/RomChecker.Web.csproj
+          dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
+          cat "$RUNNER_TEMP/nuget-audit.json"
+          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
+      - uses: aquasecurity/trivy-action@0.35.0
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: 'true'
+        with:
+          scan-type: fs
+          scanners: vuln
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
   application:
     name: Application and engine
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-dotnet@v4
@@ -36,6 +95,10 @@ jobs:
       - name: Collection engine and cache regressions
         shell: pwsh
         run: ./web/tests/CollectionEngine.Tests.ps1
+      - name: Canonical library regressions
+        run: dotnet run --project web/tests/Catalog.Tests
+      - name: RomM protocol fixture integration
+        run: node web/tests/Romm.Tests.mjs
       - name: Start read-only SMB fixture
         run: bash web/tests/start-smb-fixture.sh
       - name: Storage, bulk transfers and SMB integration
@@ -46,7 +109,9 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser workflows under a proxy subpath
         working-directory: web/client
-        run: npm run test:e2e
+        run: |
+          npm run test:e2e
+          npm run test:e2e:catalog
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
@@ -54,6 +119,7 @@ jobs:
           path: web/client/test-results/
   windows-engine:
     runs-on: windows-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - name: Windows PowerShell compatibility
@@ -62,6 +128,7 @@ jobs:
   container:
     name: Container smoke test
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: docker/setup-buildx-action@v3
@@ -72,6 +139,14 @@ jobs:
           tags: romchecker:test
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Container vulnerability gate
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: romchecker:test
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
       - name: Verify non-root runtime, subpath, and authentication
         run: |
           docker network create romchecker-ci-network
@@ -100,3 +175,15 @@ jobs:
         run: |
           docker logs romchecker-ci || true
           docker logs rom-storage-ci || true
+  required:
+    name: Required checks
+    if: always()
+    needs: [release-policy, dependencies, application, windows-engine, container]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require every quality gate
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'

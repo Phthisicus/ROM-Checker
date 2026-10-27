@@ -14,6 +14,8 @@ using RomChecker.Web.Features.Library;
 using RomChecker.Web.Features.Reports;
 using RomChecker.Web.Features.Settings;
 using RomChecker.Web.Features.Storage;
+using RomChecker.Web.Features.Romm;
+using RomChecker.Web.Features.Catalog;
 
 if (Environment.GetEnvironmentVariable("ROMCHECKER_ROLE") == "storage")
 {
@@ -49,8 +51,15 @@ builder.Services.AddSingleton<EngineRunner>();
 builder.Services.AddHttpClient("storage", client => client.Timeout = Timeout.InfiniteTimeSpan)
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10), AllowAutoRedirect = false });
 builder.Services.AddSingleton<StorageClient>();
+builder.Services.AddHttpClient("romm", client => client.Timeout = TimeSpan.FromMinutes(10))
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { ConnectTimeout = TimeSpan.FromSeconds(10), AllowAutoRedirect = false });
+builder.Services.AddSingleton<RommStore>();
+builder.Services.AddSingleton<RommClient>();
+builder.Services.AddSingleton<RommService>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<RommService>());
 builder.Services.AddSingleton<JobService>();
 builder.Services.AddHostedService(provider => provider.GetRequiredService<JobService>());
+builder.Services.AddCatalog();
 builder.Services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Path.Combine(data, "keys")))
     .SetApplicationName("RomChecker");
 builder.Services.AddAuthentication(CookieAuthenticationDefaults.AuthenticationScheme).AddCookie(cookie =>
@@ -145,6 +154,8 @@ api.MapCollections();
 api.MapJobs();
 api.MapReports();
 api.MapStorage();
+api.MapRomm();
+api.MapCatalog();
 var webRoot = Path.GetFullPath(Env("ROMCHECKER_WEB_ROOT", Path.Combine(engine, "web", "client", "dist")));
 if (Directory.Exists(webRoot))
 {

@@ -13,7 +13,7 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const [folders, setFolders] = useState<{ path: string; folders: { name: string; path: string; fullPath: string }[] }>()
   useEffect(() => {
     api<NonNullable<typeof integrations>>('/settings/integrations').then(setIntegrations).catch(fail)
-    Promise.all([api<Settings>('/settings'), api<typeof consoles>('/catalog')])
+    Promise.all([api<Settings>('/settings'), api<typeof consoles>('/consoles')])
       .then(([value, catalog]) => { setSettings(value); setConsoles(catalog) }).catch(fail)
   }, [fail])
   async function browse(path = '.') {
@@ -29,11 +29,11 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const toggle = (key: keyof Settings, title: string, text: string) => <label className="toggle-row" key={key}><span><strong>{title}</strong><small>{text}</small></span><input type="checkbox" role="switch" checked={settings[key] === true} onChange={e => update(key, e.target.checked)} /></label>
   const number = (key: keyof Settings, title: string, min: number, max: number) => <label key={key}>{title}<input type="number" min={min} max={max} required value={String(settings[key])} onChange={e => update(key, Number(e.target.value))} /></label>
   return <form onSubmit={submit}>
-    <section className="panel"><h2>Simple by default. Detailed when you need it.</h2><p>Upload a collection, choose what to verify, and keep the results together. The verification dialog lets you change checks for one run without changing these defaults.</p>
+    <section className="panel"><h2>Simple by default. Detailed when you need it.</h2><p>Import ROMs into one Library and choose what to verify. The verification dialog lets you change checks for one run without changing these defaults.</p>
       {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Recommended. Incomplete protection holds affected working copies for review.')}
       {toggle('autoDat', 'Automatic DAT references', 'Download console reference lists; ROM files are not uploaded.')}
       {toggle('identifyUnknown', 'Identify unknown formats', 'Optional online fingerprint lookup for files without a known console.')}
-      <p className="small">Guided collections use console folders, preserve required related files, and report duplicates without deleting them. Advanced server-library settings below do not change these safeguards.</p></section>
+      <p className="small">Library verification uses console folders, preserves required related files, and reports duplicates without deleting them. Advanced Expert settings below do not change these safeguards.</p></section>
     <section className="panel"><h2>Connections & privacy</h2><p>Reference services receive fingerprints and platform metadata—not ROM files. Keep this application behind HTTPS when accessed beyond localhost.</p>
       <dl className="server-info"><div><dt>VirusTotal</dt><dd>{integrations ? integrations.virusTotal ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div><div><dt>MalwareBazaar</dt><dd>{integrations ? integrations.malwareBazaar ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div>
         <div><dt>Network shares</dt><dd>{integrations?.approvedSmbHosts.length ? integrations.approvedSmbHosts.join(', ') : 'No approved servers configured'}</dd></div></dl>

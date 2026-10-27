@@ -18,12 +18,15 @@ public sealed class JobService(Store store, WebOptions options, SettingsValidato
     private bool recovered;
     private string? activeId;
     private CancellationTokenSource? activeCancellation;
+    public bool RecoveryComplete { get { lock (gate) return recovered; } }
+    public bool Busy { get { lock (gate) return activeId is not null; } }
+    public bool IsActive(string id) { lock (gate) return activeId == id; }
     public string DirectoryFor(string id)
     {
         _ = store.Get(id);
         return Path.Combine(options.Data, "jobs", id);
     }
-    public async Task<Job> Submit(JobRequest request)
+    public async Task<Job> Submit(JobRequest request, string? durableId = null)
     {
         await submissions.WaitAsync();
         try
@@ -31,7 +34,6 @@ public sealed class JobService(Store store, WebOptions options, SettingsValidato
             var action = JobActions.Get(request.Action);
             if (request.Action is "detect" or "verify")
             {
-                if (request.BatchId is null) throw new RequestException("Choose a collection.");
                 if (request.Selection is { Length: 0 or > 100000 })
                     throw new RequestException("Choose between 1 and 100000 files, or verify everything.");
                 foreach (var id in request.Selection ?? []) StoragePaths.Id(id);
@@ -40,7 +42,7 @@ public sealed class JobService(Store store, WebOptions options, SettingsValidato
             }
             else if (request.Selection is not null || request.Organize)
                 throw new RequestException("File selection and automatic organization require collection verification.");
-            if (action.ChangesFiles && !request.Confirm)
+            if (action.ChangesFiles && (request.Action != "verify" || request.Organize) && !request.Confirm)
                 throw new RequestException("Explicit confirmation is required for file changes.");
             var root = request.BatchId is null ? options.Root : storage.BatchRoot(request.BatchId);
             var settings = request.Settings ?? store.Settings();
@@ -77,7 +79,8 @@ public sealed class JobService(Store store, WebOptions options, SettingsValidato
                 if (request.Action == "apply" && store.HasApplyAttempt(request.SourceId!))
                     throw new RequestException("This preview has already been applied or attempted. Build a new preview.", 409);
             }
-            var job = new Job(Guid.NewGuid().ToString("N"), request.Action, "queued",
+            if (durableId is not null) StoragePaths.Id(durableId);
+            var job = new Job(durableId ?? Guid.NewGuid().ToString("N"), request.Action, "queued",
                 DateTimeOffset.UtcNow, null, null, request, settings);
             if (request.BatchId is not null)
                 await storage.Command($"batches/{request.BatchId}/lease", new LeaseRequest(job.Id));
@@ -108,7 +111,7 @@ public sealed class JobService(Store store, WebOptions options, SettingsValidato
             var job = store.Get(id);
             if (activeId != id) throw new RequestException("Job is not active.", 409);
             // Do not terminate a process halfway through a journaled filesystem operation.
-            if (JobActions.Get(job.Action).ChangesFiles)
+            if (JobActions.Get(job.Action).ChangesFiles && (job.Action != "verify" || job.Request.Organize))
                 throw new RequestException("File-changing jobs cannot be cancelled safely. Allow them to finish.", 409);
             store.Save(job with { Status = "cancelling" });
             activeCancellation?.Cancel();

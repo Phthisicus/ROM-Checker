@@ -7,6 +7,24 @@ $jobDir = Split-Path $RequestPath
 function Write-WebJson($Value, [string]$Path) {
     [IO.File]::WriteAllText($Path, (ConvertTo-Json -InputObject $Value -Depth 8 -Compress), (New-Object Text.UTF8Encoding $false))
 }
+function Write-AtomicWebJson($Value, [string]$Path) {
+    $temporary = "$Path.$([guid]::NewGuid().ToString('N')).tmp"
+    try {
+        Write-WebJson $Value $temporary
+        for ($attempt = 0; ; $attempt++) {
+            try {
+                if ([IO.File]::Exists($Path)) { [IO.File]::Replace($temporary, $Path, [NullString]::Value) }
+                else { [IO.File]::Move($temporary, $Path) }
+                return
+            } catch [IO.IOException] {
+                if ($attempt -ge 5) { throw }
+                Start-Sleep -Milliseconds (20 * ($attempt + 1))
+            }
+        }
+    } finally {
+        if ([IO.File]::Exists($temporary)) { [IO.File]::Delete($temporary) }
+    }
+}
 $engine = Join-Path (Split-Path (Split-Path $PSScriptRoot)) 'RomSorter.ps1'
 . $engine -DefinitionsOnly
 $script:ScriptPath = $engine
@@ -33,11 +51,7 @@ $script:OnlineCacheSaveWarning = $false
 $script:ServiceIssues = New-Object Collections.ArrayList
 $script:ProgressSink = {
     param($event)
-    $temp = Join-Path $jobDir 'progress.tmp'
-    Write-WebJson $event $temp
-    $destination = Join-Path $jobDir 'progress.json'
-    if ([IO.File]::Exists($destination)) { [IO.File]::Replace($temp, $destination, [NullString]::Value) }
-    else { [IO.File]::Move($temp, $destination) }
+    Write-AtomicWebJson $event (Join-Path $jobDir 'progress.json')
 }
 function Assert-WebPath([string]$Path) {
     if (-not $Path -or -not (Test-ChildPath $Path $S.RootFolder)) { throw "Path outside library: $Path" }
@@ -117,5 +131,6 @@ try {
     Write-WebJson $summary (Join-Path $jobDir 'summary.json')
 } catch {
     [Console]::Error.WriteLine($_.Exception.Message)
+    [Console]::Error.WriteLine($_.ScriptStackTrace)
     exit 1
 }

@@ -138,7 +138,7 @@ try {
     $detectedRom = @($collection.items | Where-Object FileName -eq 'Fixture.nes')[0]
     Assert ($detectedRom.Console -eq 'NES') 'Local detection assigns the actual console'
     ExpectStatus 400 { Request '/jobs' 'POST' @{ action = 'verify'; batchId = $id; confirm = $true; selection = @('../outside') } }
-    ExpectStatus 400 { Request '/jobs' 'POST' @{ action = 'verify'; batchId = $id; selection = @($detectedRom.CollectionId) } }
+    ExpectStatus 400 { Request '/jobs' 'POST' @{ action = 'verify'; batchId = $id; selection = @($detectedRom.CollectionId); organize = $true } }
     ExpectStatus 409 { Request "/storage/batches/$id/uploads" 'POST' @{ path = 'later.nes'; size = 1; modified = 1 } }
     $settings = JsonRequest '/settings'
     $settings.defenderScan = $false; $settings.autoDat = $false; $settings.hasheous = 'Off'
@@ -296,6 +296,7 @@ try {
     [void](Request "/storage/batches/$($capacityBatch.id)" 'DELETE')
     Write-Host "PASS: $passed storage integration assertions"
 } catch {
+    Write-Host "Storage regression failed: $($_.Exception.Message)`n$($_.ScriptStackTrace)"
     foreach ($log in 'storage.log','storage-errors.log','server.log','server-errors.log') {
         $path = Join-Path $root $log
         if (Test-Path -LiteralPath $path) { Write-Host "=== $log ==="; Get-Content -LiteralPath $path -Tail 30 | Write-Host }

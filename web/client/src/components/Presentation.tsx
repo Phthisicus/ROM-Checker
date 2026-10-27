@@ -12,7 +12,7 @@ export function Badge({ value }: { value: string }) {
 export function Modal({ title, children, close, drawer = false }: { title: string; children: ReactNode; close: () => void; drawer?: boolean }) {
   const dialog = useRef<HTMLDialogElement>(null)
   useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
-  return <dialog ref={dialog} className={drawer ? 'file-drawer' : undefined} onCancel={close} aria-label={title}>
+  return <dialog ref={dialog} className={drawer ? 'file-drawer' : undefined} onCancel={event => { event.preventDefault(); close() }} aria-label={title}>
     <div className="dialog-heading"><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={close}><X size={20} /></button></div>
     {children}
   </dialog>

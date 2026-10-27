@@ -9,3 +9,4 @@
 **/*.tsbuildinfo
 data
 .tools
+.release

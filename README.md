@@ -4,8 +4,8 @@ A self-hosted web workspace for verifying and organizing ROM collections, backed
 
 ## Web workspace
 
-- Upload-first Collections workspace with console groups, individual/console/whole-collection verification, integrated results, search, filters, and accessible file-detail drawers.
-- Responsive dark/light themes, named collections, storage accounting, and recent activity.
+- One permanent SQLite library with console groups, scoped verification, integrated findings, import provenance, and accessible file-detail drawers.
+- Separate Library, Imports, Activity, Integrations, and Settings workspaces with responsive dark/light themes.
 - Library search, console/category filters, pagination, per-file evidence, and HTML/CSV/JSON downloads.
 - Independent authenticity, integrity, antivirus, and malware findings. No detections never means guaranteed safe.
 - Check-only scanning, sort-only inventory, archive unpacking, and unpack-then-check workflows.
@@ -17,7 +17,47 @@ A self-hosted web workspace for verifying and organizing ROM collections, backed
 - Password authentication, persistent SQLite job/settings storage, non-root Docker runtime, and reverse-proxy subpath support.
 - Dedicated ROM storage service, resumable bulk folder uploads, read-only SMB imports, per-batch processing choices, and processed-folder ZIP downloads.
 
-This is a **single-administrator application**, not a multi-tenant upload service. You can process the existing mounted library or isolated import batches in a separate storage volume. Optional external verification services receive hashes and metadata, not ROM contents. Browser access does not grant access to arbitrary host folders.
+This is a **single-administrator application**, not a multi-tenant upload service. Managed import batches feed one canonical catalog; batches are provenance/storage boundaries, not independent libraries. Optional external verification services receive hashes and metadata, not ROM contents. RomM publishing is an explicit exception: eligible ROM copies are made available to your configured RomM instance. Browser access does not grant access to arbitrary host folders.
+
+## One library, independent background work
+
+**Library** is the permanent browsing surface. Uploading another folder, copying from SMB, or receiving a game from RomM adds an import session to the same catalog. **Imports** retains resumable transfers and their source history. **Activity** contains processing operations, queues, errors, and recovery tools; starting work does not replace the library screen. **Integrations** owns RomM connection settings, mappings, and synchronization history. **Settings** owns verification and storage defaults.
+
+Existing managed collection manifests are migrated idempotently into SQLite without relocating or deleting originals or recovery journals. Stable entries retain their import and engine identifiers across normal organization. Reference identity, completed checks, integrity, security, organization, and remote synchronization are separate states. Exact duplicate fingerprints are reported without merging different variants or automatically deleting either copy. A changed file invalidates its old publication eligibility and approval.
+
+Background reconciliation reuses fingerprints only while a file's path, size, and modification time are unchanged. Explicit library refresh, manual approval, and publication rehash physical content; background reconciliation is not a continuous filesystem integrity monitor. Deleted imports remain in history as missing files and cannot be published.
+
+Use library filters and explicit selection to check a file, console, category, all matching results, or the whole library. Selecting a supported disc/companion member includes its linked group. Cross-import operations are dispatched sequentially through the existing engine rather than running competing writers. Technical job snapshots remain historical evidence, not the current library database.
+
+Manual review approvals require an explanation and are bound to the exact SHA-256 fingerprint. They acknowledge a reviewable known modification or missing reference; they do not erase warnings, rewrite checksums, certify safety, or override malicious/suspicious findings, incomplete required protection, identity conflicts, or incomplete dependencies. Approval alone does not move the file. Approval and organization are recorded separately in history.
+
+## RomM integration
+
+ROM Checker owns managed file identity, verification, approvals, and publication eligibility. RomM supplies descriptive metadata and a browsing/playback library. Metadata linking requires exact hash and platform evidence, never title-only matching. Imported metadata is separate from local verification findings.
+
+Configure a RomM base URL and a dedicated API token under **Integrations**, test the connection, and map each local console to the actual RomM platform ID and filesystem slug. The connection test reads the installed OpenAPI schema and platform list; publishing requires the exact-hash API and token-authenticated scan task API. Older RomM releases may need upgrading. Credentials are protected using the application's persisted Data Protection keys and are never returned by the settings API. Use HTTPS for a non-local network; redirects are deliberately not followed and credentials are not reused when changing servers without supplying a token.
+
+### Publication transport and Docker mounts
+
+Publishing uses a **shared export library plus the RomM API**, not direct database access or an HTTP ROM upload. This preserves nested disc/companion paths and keeps unchecked imports out of RomM. The default export root is `/storage/romm-library`, separate from `batches/`; standalone deployments may set `ROMCHECKER_ROMM_EXPORT_ROOT` to a separate, writable shared directory.
+
+Mount **only that export directory** as RomM's `/romm/library`, preferably read-only. Do not mount the entire ROM storage volume as RomM's library: it includes unchecked originals and staging files. For the supplied Compose deployment, the export directory is the `romm-library` subdirectory of the project-scoped `rom-storage` named volume. Use a Docker volume subpath mount or an explicit shared bind mount. The directory is created on first successful export; ensure it exists before configuring a volume subpath. Both applications must reach the same export files, and UID/GID `10001:10001` needs write access from ROM Checker.
+
+Exports use RomM's `roms/<platform filesystem slug>/<stable group ID>/...` layout. Complete linked groups are copied and fingerprint-checked in a staging directory outside `roms`, then promoted together. Existing exports are reused only when every file matches; differing files are never silently overwritten. A complete group plus a 1 GiB reserve must fit on disk. A successful export queues a RomM scan and later links exact file hashes to metadata. “Exported / awaiting scan” is not “linked”; scan failures and missing mounts are explicit, retryable failures.
+
+The API token needs `platforms.read`, `roms.read`, and `tasks.run` for this shared-library flow. RomM file-write scope is not needed to copy into the local export directory. RomM metadata resources and database remain its own responsibility. There is no remote rename, file deletion, or bidirectional deletion propagation.
+
+### Eligibility and scoped publishing
+
+**Unchecked, running, incomplete, or changed files cannot be published.** Completed checks are necessary but not sufficient: required integrity, identity, security, and linked-file policies must also pass. Reference-matched files can be eligible; checked files without a reference or with a known-modification warning require the applicable explicit approval. Security blocks cannot be approved away.
+
+Filter by console, category, completed checks, reference status, attention, and eligibility. Preview publication before confirming: eligible files and excluded files have separate counts and reasons. Linked groups are expanded and held as a unit when a member is blocked. Automatic publishing is opt-in and uses the same server-side eligibility checks as manual publishing, including a fresh physical fingerprint check. A current exact remote match is linked instead of creating another copy.
+
+**Import from RomM** streams individual game files into a resumable managed import using bounded chunks, preserving nested paths. ROM bytes are not buffered as a whole game. Received files start unchecked, even when RomM already knows their metadata. Remote checksums are checked when supplied; unexpected archives, changed download sizes, or mismatched hashes fail explicitly rather than being silently accepted. No automatic extraction or remote deletion occurs.
+
+Connection settings, file mappings, metadata snapshots, queued synchronization jobs, transfer checkpoints, and audit history persist in SQLite. Queued work survives restarts; partially exported files are not visible as a complete group. Retry failed work from Integrations. RomM scans can take time; linking times out after 30 minutes with an actionable error. Reconfiguring the connection requires pending synchronization work to finish.
+
+The integration is exercised against a local HTTP protocol fixture. No real RomM server is bundled or provisioned, and fixture coverage is not a claim that every RomM version/provider combination has been tested. Test your installed instance and a small backed-up library before enabling automatic publishing.
 
 ## Run with Docker Compose
 
@@ -46,7 +86,7 @@ Deleting processed recovery archives is **permanent**, disables extraction undo 
 
 ## Bulk imports and temporary ROM storage
 
-Open **Collections**. Use **Upload ROMs / Choose folder** to create a named collection, or open **Import from network share**, create an empty destination collection, and connect to an approved server. Backend APIs retain the term `batch` for compatibility.
+Open **Imports**. Use **Upload ROMs / Choose folder** to create a named import session, or open **Import from network share**, create an empty destination import, and connect to an approved server. Backend APIs retain the term `batch` for compatibility. The detailed batch-processing controls below are retained for import inspection and advanced recovery; every import contributes to the same permanent library.
 
 1. **Upload / resume folder:** choose a folder in a Chromium-based browser (Chrome/Edge). Relative folders are retained. Files upload sequentially in chunks of at most **8 MiB**; ROM contents are never buffered as one huge request or ZIP. Progress reports file counts and bytes, and Pause aborts the current request. Reselect the same unchanged folder in the same batch to resume after interruptions/reloads; the server checks relative path, size, and modification time. These identity checks are not a full client-side content hash. Changed files require a new batch. A bounded retry policy handles transient failures; permanent failures stop and are displayed.
 2. **SMB:** connect using server, share, optional domain, username, and password. The server must be explicitly listed in `ROMCHECKER_SMB_HOSTS`. Browse folders, select files/folders or all visible items, and import into an **empty** batch. Up to 1000 selected roots can expand recursively, within the batch limits. Imports are copied read-only from SMB; they never delete, rename, or write to the source share. Progress reflects completed imported files; failures retain completed originals and identify the failed batch.
@@ -199,6 +239,7 @@ dotnet build .\web\server\RomChecker.Web.csproj
 pwsh -NoProfile -File .\web\tests\Api.Tests.ps1
 pwsh -NoProfile -File .\web\tests\Storage.Tests.ps1
 pwsh -NoProfile -File .\web\tests\CollectionEngine.Tests.ps1
+node .\web\tests\Romm.Tests.mjs
 ```
 
 From `web/client`:
@@ -220,28 +261,28 @@ The unmodified [SMBLibrary](https://github.com/TalAloni/SMBLibrary) dependency i
 Development follows:
 
 ```text
-feature branch -> pull request to beta -> validated integration
-beta -> promotion pull request to main -> release PR -> approved stable release
+feature branch -> development -> beta -> main
+                 dev container prerelease  stable release
 ```
 
-- **PR checks:** engine regressions on Ubuntu and Windows PowerShell, API integration, frontend tests/build, real Chromium workflows, and container smoke tests.
-- **Push to beta:** rerun checks, then publish `beta`, `<version>-beta.<run number>`, and `sha-<commit>` to GHCR.
-- **Push to main:** rerun checks and let Release Please open/update a release PR.
-- **Merge the release PR:** create a version tag, GitHub Release, and changelog; publish `<version>`, `latest`, and `sha-<commit>` with OCI version/revision labels, SBOM, and provenance.
+- **PRs to all three branches:** quality gates, promotion policy, release-note validation, dependency/container vulnerability gates, Ubuntu and Windows engine regressions, API/storage/RomM integration, Chromium workflows, and container smoke tests.
+- **Successful push to development:** CI, then publish `development` and `development-sha-<commit>` containers with a development version, SBOM, and provenance. No Git tag or GitHub release.
+- **Successful delivery on beta:** publish `<version>-beta.<sequence>`, a GitHub **prerelease**, and the `beta` image alias.
+- **Successful delivery on main:** publish a stable version, GitHub **release**, and the `latest` image alias. No additional release PR is required.
+- **Release assets:** feature-focused notes, source commit, exact container digest, machine-readable manifest, checksums, and an image with SBOM/build provenance.
 
-The main delivery workflow publishes after Release Please reports release creation in the same run. It does not depend on a second workflow being triggered by a `GITHUB_TOKEN`-created tag.
+Semantic versions come from immutable release tags, Conventional Commits, and reviewed `.github/release-notes/*.json` entries. `version.txt` is the initial version floor (`0.2.0`); subsequent releases are calculated automatically. The build stamps frontend metadata and `version.txt` without generating commits. Each release has the same version in its Docker labels and application UI. Stable notes accumulate all changes since the previous stable release; beta notes describe changes since the preceding applicable beta/stable tag.
 
-Use Conventional Commit PR titles and squash merges: `feat:`, `fix:`, `perf:`, `docs:`, `refactor:`, and `chore:`. Mark breaking changes explicitly. Release Please updates `version.txt` and frontend package metadata. Add a reviewed overview, upgrade instructions, known limitations, and migration warnings to release PR notes where relevant; generated commit lists cannot replace editorial review.
+Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
 
 Repository-owner setup is still required:
 
-1. Enable GitHub Actions and permit Actions to create pull requests.
-2. Grant the delivery workflow package publication permissions; ensure the GHCR package is linked to this repository.
-3. Protect `beta` and `main`, require CI, and disallow force pushes.
-4. Merge these workflow files into the intended branches. No remote branches, repository policies, or releases are changed merely by adding these files.
-5. After each stable release, merge release metadata and any hotfixes back into `beta`.
+1. Install these changes on `development`, then promote them to `beta` and `main`. Enable Actions and permit the workflow's repository/package write permissions.
+2. Ensure the GHCR package is linked to this repository and grants its Actions workflows write access.
+3. Require **Required checks**, PRs, resolved conversations, and no force pushes/deletions on all three branches. A safe preview/apply script is provided; private repositories may require GitHub Pro.
+4. Merge emergency `hotfix/*` changes back into development and beta. Feature changes never go directly into release branches.
 
-CI builds linux/amd64 images initially. Publishing is automated; production deployment is deliberately not automated without a defined target, credentials, and rollback policy.
+See **[Development and release guide](docs/DEVELOPMENT.md)** for release-note examples, version rules, protection setup, failure recovery, and deployment/rollback instructions. Adding files does not modify remote settings or publish anything. CI builds Linux amd64 images initially. Delivery is automated; updating a running server remains deliberate, with backups and a defined deployment target.
 
 ## Original command-line application
 

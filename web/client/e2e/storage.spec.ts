@@ -1,23 +1,23 @@
 import { test, expect } from '@playwright/test'
-import { mkdtemp, mkdir, writeFile, rm } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
 
 test('guided collections group consoles, verify selections, organize and download under a subpath', async ({ page }) => {
-  const fixtureDirectory = await mkdtemp(join(tmpdir(), 'romchecker-upload-'))
+  const fixtureDirectory = resolve(test.info().outputPath('upload-fixture'))
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
   try {
     const folder = join(fixtureDirectory, 'Games')
-    await mkdir(folder)
+    await mkdir(folder, { recursive: true })
     const fixture = Buffer.alloc(40976)
     fixture.set([0x4e, 0x45, 0x53, 0x1a, 2, 1])
     await writeFile(join(folder, 'Uploaded fixture.nes'), fixture)
     await page.goto('./')
     await page.getByLabel('Administrator password').fill('browser-fixture-password')
     await page.getByRole('button', { name: 'Sign in', exact: true }).click()
-    await expect(page.getByRole('heading', { name: 'Your collections', level: 1 })).toBeVisible()
-    await page.getByLabel('Collection name', { exact: false }).fill('Browser upload collection')
+    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
+    await page.getByRole('button', { name: 'Imports', exact: true }).click()
+    await page.getByLabel('Import name', { exact: false }).fill('Browser upload import')
     await page.getByLabel('Upload ROM folder').setInputFiles(folder)
     await expect(page.getByRole('button', { name: 'Verify everything' })).toBeEnabled({ timeout: 60_000 })
     await expect(page.getByRole('button', { name: 'Uploaded fixture.nes', exact: false }).first()).toBeVisible()
@@ -39,8 +39,8 @@ test('guided collections group consoles, verify selections, organize and downloa
     expect((await download).suggestedFilename()).toMatch(/^roms-.*\.zip$/)
     await page.setViewportSize({ width: 390, height: 844 })
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
-    await page.getByRole('button', { name: 'Delete collection', exact: true }).click()
-    await page.getByRole('button', { name: 'Permanently delete this collection' }).click()
+    await page.getByRole('button', { name: 'Delete import', exact: true }).click()
+    await page.getByRole('button', { name: 'Permanently delete this import' }).click()
     await expect(page.getByRole('button', { name: /Upload ROMs/ })).toBeVisible()
     expect(errors).toEqual([])
   } finally { await rm(fixtureDirectory, { recursive: true, force: true }) }

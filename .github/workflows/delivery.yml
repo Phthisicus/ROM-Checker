@@ -1,77 +1,260 @@
 name: Delivery
 on:
   push:
-    branches: [beta, main]
+    branches: [development, beta, main]
 permissions:
   contents: read
+# Serialize both channels so tag allocation and moving aliases cannot race.
+# GitHub retains only the newest pending run in a concurrency group.
 concurrency:
-  group: delivery-${{ github.ref }}
+  group: delivery-${{ github.ref_name == 'development' && 'development' || 'release' }}
   cancel-in-progress: false
 jobs:
   checks:
     uses: ./.github/workflows/ci.yml
-  release:
+  development-image:
+    name: Publish development container
+    if: github.ref_name == 'development'
     needs: checks
-    if: github.ref_name == 'main'
     runs-on: ubuntu-latest
-    permissions:
-      contents: write
-      pull-requests: write
-    outputs:
-      created: ${{ steps.release.outputs.release_created }}
-      tag: ${{ steps.release.outputs.tag_name }}
-    steps:
-      - uses: googleapis/release-please-action@v4
-        id: release
-        with:
-          target-branch: main
-          config-file: release-please-config.json
-          manifest-file: .release-please-manifest.json
-  image:
-    needs: [checks, release]
-    if: >-
-      always() && needs.checks.result == 'success' &&
-      (github.ref_name == 'beta' || needs.release.outputs.created == 'true')
-    runs-on: ubuntu-latest
+    timeout-minutes: 60
     permissions:
       contents: read
       packages: write
     steps:
       - uses: actions/checkout@v4
-      - name: Calculate image identity
+        with:
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Calculate development build identity
         id: identity
         env:
-          RELEASE_TAG: ${{ needs.release.outputs.tag }}
+          REPOSITORY: ${{ github.repository }}
+          SOURCE_SHA: ${{ github.sha }}
         run: |
-          image="ghcr.io/${GITHUB_REPOSITORY,,}"
-          if [ "$GITHUB_REF_NAME" = beta ]; then
-            version="$(cat version.txt)-beta.${GITHUB_RUN_NUMBER}"
-            alias=beta
-          else
-            version="${RELEASE_TAG#v}"
-            alias=latest
-          fi
-          echo "image=$image" >> "$GITHUB_OUTPUT"
+          version="$(cat version.txt)-development.$SOURCE_SHA"
+          image="ghcr.io/${REPOSITORY,,}"
           echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "alias=$alias" >> "$GITHUB_OUTPUT"
+          echo "image=$image" >> "$GITHUB_OUTPUT"
+          node --input-type=module -e '
+            import { readFileSync, writeFileSync } from "node:fs";
+            const version = process.argv[1];
+            writeFileSync("version.txt", version + "\n");
+            for (const name of ["package.json", "package-lock.json"]) {
+              const path = "web/client/" + name;
+              const value = JSON.parse(readFileSync(path, "utf8"));
+              value.version = version;
+              if (value.packages?.[""]) value.packages[""].version = version;
+              writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
+            }
+          ' "$version"
       - uses: docker/setup-buildx-action@v3
       - uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/build-push-action@v6
+          password: ${{ github.token }}
+      - name: Build development candidate
+        uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          load: true
+          tags: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
           build-args: |
             VERSION=${{ steps.identity.outputs.version }}
             REVISION=${{ github.sha }}
-          tags: |
-            ${{ steps.identity.outputs.image }}:${{ steps.identity.outputs.version }}
-            ${{ steps.identity.outputs.image }}:${{ steps.identity.outputs.alias }}
-            ${{ steps.identity.outputs.image }}:sha-${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan development candidate
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Verify development runtime identity
+        env:
+          IMAGE: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
+      - name: Publish development image without creating a release
+        id: image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
+          build-args: |
+            VERSION=${{ steps.identity.outputs.version }}
+            REVISION=${{ github.sha }}
           sbom: true
           provenance: mode=max
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Verify published image and update development alias
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE: ${{ steps.identity.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          docker pull "$IMAGE@$DIGEST"
+          bash .github/release-tools/smoke-image.sh "$IMAGE@$DIGEST" "$VERSION" "$SOURCE_SHA"
+          head="$(gh api "repos/$REPOSITORY/git/ref/heads/development" --jq .object.sha)"
+          if [ "$head" = "$SOURCE_SHA" ]; then
+            docker buildx imagetools create --tag "$IMAGE:development" "$IMAGE@$DIGEST"
+          fi
+          printf '## Development container\n\nImage: %s:development-sha-%s\n\nDigest: %s\n\nNo Git tag or GitHub release created.\n' "$IMAGE" "$SOURCE_SHA" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+  publish:
+    name: Publish checked release
+    if: github.ref_name == 'beta' || github.ref_name == 'main'
+    needs: checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.sha }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Read published release baselines
+        env:
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          mkdir -p .release
+          gh api --paginate "repos/$REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > .release/published-tags.txt
+      - name: Plan release from source history
+        id: plan
+        env:
+          BRANCH: ${{ github.ref_name }}
+          SOURCE_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+        run: node .github/release-tools/release.mjs plan "$BRANCH" "$SOURCE_SHA" "$REPOSITORY" .release .release/published-tags.txt
+      - name: Reserve immutable version for retry
+        run: node .github/release-tools/release.mjs reserve .release/release-plan.json
+      - name: Stamp application and frontend version for this build
+        run: node .github/release-tools/release.mjs stamp .release/release-plan.json
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Look for an existing immutable image
+        id: existing
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          if docker buildx imagetools inspect "$IMAGE:$VERSION" > .release/registry.txt 2> .release/registry-error.txt; then
+            docker pull "$IMAGE:$VERSION"
+            test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
+            test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION"
+            echo "found=true" >> "$GITHUB_OUTPUT"
+          elif grep -Eqi 'manifest unknown|not found' .release/registry-error.txt; then
+            echo "found=false" >> "$GITHUB_OUTPUT"
+          else
+            cat .release/registry-error.txt >&2
+            exit 1
+          fi
+      - name: Build candidate without publishing
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          tags: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.plan.outputs.version }}
+            REVISION=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Scan candidate container
+        uses: aquasecurity/trivy-action@0.35.0
+        with:
+          image-ref: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table
+      - name: Verify the exact candidate runtime and version
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
+      - name: Publish immutable image with SBOM and provenance
+        if: steps.existing.outputs.found != 'true'
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
+          build-args: |
+            VERSION=${{ steps.plan.outputs.version }}
+            REVISION=${{ github.sha }}
+          sbom: true
+          provenance: mode=max
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Identify and verify the published image
+        id: image
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+        run: |
+          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          docker pull "$IMAGE@$digest"
+          bash .github/release-tools/smoke-image.sh "$IMAGE@$digest" "$VERSION" "$SOURCE_SHA"
+          node .github/release-tools/release.mjs notes .release/release-plan.json "$digest"
+          (cd .release && sha256sum release-manifest.json image-digest.txt > SHA256SUMS)
+      - name: Publish complete GitHub release
+        run: node .github/release-tools/release.mjs publish .release/release-plan.json
+      - name: Update channel aliases only for the current branch head
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+          SOURCE_SHA: ${{ github.sha }}
+          BRANCH: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          head="$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)"
+          if [ "$head" != "$SOURCE_SHA" ]; then
+            echo "A newer push exists. Keeping channel aliases unchanged." >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          alias=beta
+          if [ "$BRANCH" = main ]; then alias=latest; fi
+          docker buildx imagetools create --tag "$IMAGE:$alias" --tag "$IMAGE:$BRANCH-sha-$SOURCE_SHA" "$IMAGE@$DIGEST"
+      - name: Release summary
+        env:
+          VERSION: ${{ steps.plan.outputs.version }}
+          IMAGE: ${{ steps.plan.outputs.image }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          printf "## ROM Checker %s\n\nContainer: \`%s@%s\`\n\n" "$VERSION" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+          cat .release/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: release-record-${{ github.run_id }}-${{ github.run_attempt }}
+          path: .release/
+          retention-days: 90

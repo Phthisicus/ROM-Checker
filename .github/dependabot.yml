@@ -1,0 +1,41 @@
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: development
+    groups:
+      actions:
+        patterns: ['*']
+    commit-message:
+      prefix: ci
+  - package-ecosystem: npm
+    directory: /web/client
+    schedule:
+      interval: weekly
+    target-branch: development
+    open-pull-requests-limit: 5
+    groups:
+      frontend:
+        patterns: ['*']
+    commit-message:
+      prefix: build
+  - package-ecosystem: nuget
+    directory: /web/server
+    schedule:
+      interval: weekly
+    target-branch: development
+    open-pull-requests-limit: 5
+    groups:
+      backend:
+        patterns: ['*']
+    commit-message:
+      prefix: build
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+    target-branch: development
+    commit-message:
+      prefix: build

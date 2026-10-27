@@ -1,0 +1,7 @@
+{
+  "type": "improvement",
+  "title": "Three-branch delivery with versioned containers and release summaries",
+  "description": "Development changes receive automated quality checks and publish development containers without creating GitHub releases. Successful beta and main delivery runs create clearly marked beta prereleases or stable releases, with feature-focused notes, exact container versions, source revisions, image digests, checksums, SBOMs, and build provenance. Release retries reuse their reserved version and published artifacts.",
+  "upgrade": "Use development for feature integration, beta for preview testing, and main for stable promotion. Required repository protections depend on your GitHub plan. Container publishing does not automatically update a running installation.",
+  "limitations": "Initial container publishing targets Linux amd64. CI vulnerability gates may block publication until a fix or a narrowly documented, time-limited exception is available."
+}
