@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "Readable development versions and permanent container build identity",
+  "description": "Development containers now use readable history-based prerelease versions and workflow build numbers without creating releases. Every published image carries a permanent build-information file, matching container labels, frontend identity, startup logs, and Settings diagnostics. Delivery verifies identity before and after publication and reuses exact-version images on retry. SQLite schema checks block unsupported downgrades; opt-in manual update checks compare the running channel against registry metadata without deploying changes.",
+  "upgrade": "Back up application data and storage before upgrading. Existing unversioned application databases are adopted as schema 1 without changing tables or ROM data. Enable ROMCHECKER_CHECK_UPDATES only if outbound update checks are wanted; private-package checks require server-only package-read credentials.",
+  "limitations": "Older containers without schema guards cannot prevent incompatible downgrades. Update checks are manual and do not install updates or guarantee that future schema migrations are reversible."
+}

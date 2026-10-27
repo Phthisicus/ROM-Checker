@@ -3,7 +3,15 @@ WORKDIR /src
 COPY web/client/package*.json ./
 RUN npm ci --no-fund --no-audit
 COPY web/client/ ./
-RUN npm run build
+COPY .github/release-tools/build-info.mjs ./build-info.mjs
+ARG VERSION=0.0.0-local
+ARG REVISION=development
+ARG BUILD_NUMBER=0
+ARG BUILD_ATTEMPT=0
+ARG CHANNEL=local
+ARG BUILT_UTC
+ARG WORKFLOW_URL
+RUN node build-info.mjs && npm run build && cp build-info.json dist/build-info.json
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS backend
 WORKDIR /src
@@ -13,13 +21,24 @@ COPY web/server/ web/server/
 RUN dotnet publish web/server/RomChecker.Web.csproj -c Release -o /out --no-restore /p:UseAppHost=false
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
-ARG VERSION=0.2.0-dev
+ARG VERSION=0.0.0-local
 ARG REVISION=development
+ARG BUILD_NUMBER=0
+ARG BUILD_ATTEMPT=0
+ARG CHANNEL=local
+ARG BUILT_UTC
+ARG WORKFLOW_URL
 LABEL org.opencontainers.image.title="ROM Checker" \
       org.opencontainers.image.description="Self-hosted ROM verification and organization workspace" \
       org.opencontainers.image.source="https://github.com/Phthisicus/ROM-Checker" \
       org.opencontainers.image.version="${VERSION}" \
-      org.opencontainers.image.revision="${REVISION}"
+      org.opencontainers.image.revision="${REVISION}" \
+      org.opencontainers.image.created="${BUILT_UTC}" \
+      io.romchecker.build-number="${BUILD_NUMBER}" \
+      io.romchecker.build-attempt="${BUILD_ATTEMPT}" \
+      io.romchecker.channel="${CHANNEL}" \
+      io.romchecker.workflow-url="${WORKFLOW_URL}" \
+      io.romchecker.schema-version="1"
 USER root
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates curl \
@@ -36,6 +55,7 @@ RUN apt-get update \
 WORKDIR /app
 COPY --from=backend /out/ ./
 COPY --from=frontend /src/dist/ ./web/client/dist/
+COPY --from=frontend /src/build-info.json ./build-info.json
 COPY RomSorter.ps1 ./
 COPY web/engine/ ./web/engine/
 COPY deploy/freshclam.conf /etc/clamav/freshclam.conf

@@ -152,6 +152,17 @@ export function run(command, args) {
         throw new Error('Add a feature-focused .github/release-notes/*.json entry for this change.')
     }
     console.log('Release-note entries are valid.')
+  } else if (command === 'development') {
+    const [sha, repository, number] = args
+    if (!/^[a-f0-9]{40}$/.test(sha) || !/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[1-9]\d*$/.test(number))
+      throw new Error('Invalid development build source.')
+    const tags = localTags()
+    const baseline = baselineFor(tags, sha, false)
+    const version = calculateVersion({ branch: 'main', tags: tags.filter(tag => tag.name === baseline), commits: commitsSince(baseline, sha),
+      notes: notesSince(baseline, sha), fallback: readFileSync(join(root, 'version.txt'), 'utf8').trim(), sha })
+    output('version', `${version}-development.${number}`)
+    output('image', `ghcr.io/${repository.toLowerCase()}`)
+    console.log(`${version}-development.${number}`)
   } else if (command === 'plan') {
     const [branch, sha, repository, directory = '.release', publishedFile] = args
     if (!/^[\w.-]+\/[\w.-]+$/.test(repository) || !/^[a-f0-9]{40}$/.test(sha)) throw new Error('Invalid release source.')
@@ -228,7 +239,7 @@ export function run(command, args) {
     gh('release', 'edit', plan.tag, '--repo', plan.repository, '--draft=false', `--prerelease=${plan.prerelease}`,
       `--latest=${!plan.prerelease && head === plan.sha}`, '--notes-file', join(directory, 'release-notes.md'))
   } else {
-    throw new Error('Usage: release.mjs validate [base] | plan branch sha owner/repo [directory] [published-tags.txt] | reserve/stamp/publish plan.json | notes plan.json digest')
+    throw new Error('Usage: release.mjs validate [base] | development sha owner/repo build-number | plan branch sha owner/repo [directory] [published-tags.txt] | reserve/stamp/publish plan.json | notes plan.json digest')
   }
 }
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

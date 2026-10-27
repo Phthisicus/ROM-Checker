@@ -33,7 +33,7 @@ describe('web workspace', () => {
       if (path === '/api/login') { signedIn = true; return Response.json({ authenticated: true }) }
       if (path === '/api/session') return Response.json({ authenticated: signedIn }, { status: signedIn ? 200 : 401 })
       if (path === '/api/jobs') return Response.json([])
-      if (path === '/api/info') return Response.json({ version: '0.2.0', library: '/library' })
+      if (path === '/api/info') return Response.json({ version: '0.2.0', buildNumber: 142, library: '/library' })
       if (path === '/api/storage/config') return Response.json({ enabled: true })
       if (path === '/api/storage/batches') return Response.json([])
       if (path === '/api/romm/links') return Response.json([])
@@ -45,6 +45,7 @@ describe('web workspace', () => {
     fireEvent.change(await screen.findByLabelText('Administrator password'), { target: { value: 'fixture-only-password' } })
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    expect(await screen.findByText('v0.2.0 · Build 142')).toHaveAttribute('data-frontend-version', __APP_VERSION__)
     expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: 'Imports' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /Upload ROMs/ })).toBeEnabled())

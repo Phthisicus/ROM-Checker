@@ -218,7 +218,9 @@ There is **one shared engine queue across every feature and batch**. A separate 
 | `ROMCHECKER_JOB_TIMEOUT_HOURS` | `24`; interrupted operations retain recovery journals |
 | `ROMSORTER_VIRUSTOTAL_KEY` | Optional secret; configure on server only |
 | `ROMSORTER_MALWAREBAZAAR_KEY` | Optional secret; configure on server only |
-| `ROMCHECKER_VERSION`, `ROMCHECKER_COMMIT` | Embedded in published images; visible in Settings |
+| `ROMCHECKER_VERSION`, `ROMCHECKER_COMMIT` | Image defaults for external tooling; application identity comes from the baked `/app/build-info.json`, not runtime overrides |
+| `ROMCHECKER_CHECK_UPDATES` | `false`; set `true` to enable manual, same-channel GHCR update checks in Settings; never installs updates |
+| `ROMCHECKER_UPDATE_USERNAME`, `ROMCHECKER_UPDATE_TOKEN` | Optional server-only GHCR package-read credentials for private-package update checks |
 | `ROMCHECKER_STORAGE_URL` | App only; internal storage URL, empty disables batch storage in standalone mode |
 | `ROMCHECKER_ROLE` | `storage` starts only the internal storage service; empty starts the web app |
 | `ROMCHECKER_STORAGE_ROOT` | `/storage`; same path/volume in app and storage, outside the legacy library |
@@ -266,12 +268,14 @@ feature branch -> development -> beta -> main
 ```
 
 - **PRs to all three branches:** quality gates, promotion policy, release-note validation, dependency/container vulnerability gates, Ubuntu and Windows engine regressions, API/storage/RomM integration, Chromium workflows, and container smoke tests.
-- **Successful push to development:** CI, then publish `development` and `development-sha-<commit>` containers with a development version, SBOM, and provenance. No Git tag or GitHub release.
+- **Successful push to development:** CI, then publish a readable `<next-version>-development.<build-number>` container plus `development` and `development-sha-<commit>` tags, SBOM, and provenance. No Git tag or GitHub release.
 - **Successful delivery on beta:** publish `<version>-beta.<sequence>`, a GitHub **prerelease**, and the `beta` image alias.
 - **Successful delivery on main:** publish a stable version, GitHub **release**, and the `latest` image alias. No additional release PR is required.
 - **Release assets:** feature-focused notes, source commit, exact container digest, machine-readable manifest, checksums, and an image with SBOM/build provenance.
 
 Semantic versions come from immutable release tags, Conventional Commits, and reviewed `.github/release-notes/*.json` entries. `version.txt` is the initial version floor (`0.2.0`); subsequent releases are calculated automatically. The build stamps frontend metadata and `version.txt` without generating commits. Each release has the same version in its Docker labels and application UI. Stable notes accumulate all changes since the previous stable release; beta notes describe changes since the preceding applicable beta/stable tag.
+
+Containers permanently embed version, build number/attempt, channel, commit, UTC build time, workflow URL, and schema version. Settings exposes those details and a credential-free diagnostics download. Database schema checks reject unsupported newer data before workers start; always back up before upgrading because older containers may lack this safeguard. Optional manual update notifications compare only the current channel and never deploy changes. See the [build identity and compatibility guide](docs/DEVELOPMENT.md#build-identity-and-compatibility).
 
 Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
 

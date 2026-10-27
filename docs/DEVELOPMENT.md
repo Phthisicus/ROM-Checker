@@ -34,7 +34,7 @@ Container and dependency scanners block fixable **HIGH/CRITICAL** vulnerabilitie
 
 No publishing credentials are supplied to PR workflows. Do not change these jobs to `pull_request_target` or execute untrusted PR code with write credentials. Delivery gets publication permissions only after reusable CI succeeds. There is no publishing trigger for feature branches or tags.
 
-Development pushes publish `development-sha-<full commit>` and update the moving `development` alias only if that commit is still the branch head. Images carry a version such as `0.2.0-development.<full commit>`, with matching frontend/runtime identity, SBOM, and provenance. Candidate and published-image smoke checks verify runtime identity. This job has no repository write permission and creates no Git tag, GitHub release, or release assets. Development delivery runs independently of the serialized beta/main release queue. Commit-specific development tags identify source but can be rebuilt on rerun; deploy by digest when immutable bytes are required.
+Development pushes publish a readable version such as `0.3.0-development.142` plus `development-sha-<full commit>` and update the moving `development` alias only if that commit is still the branch head. The base version comes from the same history-based release planner used by beta/main; the development suffix is the Delivery workflow run number. Images include SBOM and provenance. Candidate and published-image smoke checks verify baked/runtime/frontend identity. This job has no repository write permission and creates no Git tag, GitHub release, or release assets. Development delivery runs independently of the serialized beta/main release queue. A retry reuses an existing exact-version image rather than replacing it; commit-specific tags identify source, not necessarily unique bytes across separate workflow runs. Deploy by digest for exact bytes.
 
 Dependabot targets development with weekly grouped updates. Review dependency changes, add a release-note entry to an application/pipeline update PR, and rerun checks before merging. Dependabot is configured from the default branch once these files reach main.
 
@@ -77,7 +77,21 @@ Beta notes are incremental against the preceding applicable published ancestor b
 
 Breaking changes deliberately advance the major version even before 1.0; this avoids silently breaking preview users. Beta numbers increment within the upcoming release line. For example, after `1.2.0`: feature previews are `1.3.0-beta.1`, `.2`, and `.3`; promotion creates `1.3.0`, not three stable releases. A later fix produces `1.3.1-beta.1` and then `1.3.1`.
 
-Tags are the version ledger. Never repoint or delete them. The pipeline stamps `version.txt`, frontend package metadata, OCI labels, and runtime version/commit variables in the build workspace without committing generated changes. The UI, GitHub release, and exact Docker tag identify the same build.
+Tags are the release-version ledger. Never repoint or delete them. The pipeline stamps `version.txt` and frontend package metadata in the build workspace without committing generated changes. The UI, GitHub release, and exact Docker tag identify the same application version.
+
+## Build identity and compatibility
+
+Each published container includes `/app/build-info.json`: application version, Delivery workflow build number, build attempt, channel (`development`, `beta`, or `stable`), full source SHA, UTC build timestamp, workflow URL, and database schema version. Docker copies the same file into the frontend distribution and compiles the version into its JavaScript. OCI version/revision/created labels and `io.romchecker.*` labels carry the same identity. Build numbers are workflow-local, not global release ordering; attempts identify retries. Reusing an already published image preserves its original build metadata, even when a later attempt performs the publication checks.
+
+The baked file is authoritative. `ROMCHECKER_VERSION` and `ROMCHECKER_COMMIT` remain image defaults for external tooling but cannot override `/api/info`, startup logs, or Settings. Missing/invalid container metadata fails startup; source runs without that file are explicitly `0.0.0-local`, build 0. Unversioned local Docker builds default to the same local identity and cannot pass published-image identity smoke checks.
+
+Settings displays build details and offers an authenticated diagnostic JSON download (`/api/diagnostics/build`) containing only build/schema metadata, not settings, credentials, or ROM data. Startup checks adopt existing unversioned SQLite databases as schema 1 without altering their tables or ROM data. `PRAGMA user_version` is checked before application stores/workers start; newer unsupported schema versions fail with backup/compatible-image guidance and are never reset. Future schema changes must add explicit migrations and advance the supported range and baked schema together. An image predating this guard cannot enforce downgrade protection: back up data before upgrades and restore a matching backup when necessary.
+
+## Channel-aware update notifications
+
+Update checks are disabled by default and never install software. Set `ROMCHECKER_CHECK_UPDATES=true` on the application server, then use **Settings > Check for updates**. There is no background polling. The server reads this package's GHCR `development`, `beta`, or `latest` image metadata for the matching channel and CPU architecture. It compares semantic application versions, not build counters alone, refuses cross-channel results/conflicting identities, and reports a schema warning when the candidate schema differs. A channel alias older than the running image does not trigger a downgrade.
+
+Public package checks need no credentials. For this private package, configure `ROMCHECKER_UPDATE_USERNAME` and a server-only `ROMCHECKER_UPDATE_TOKEN` with package-read access (and required organization authorization, if applicable). These credentials are never sent to the browser or exported in diagnostics. Checks contact `ghcr.io` and its signed `pkg-containers.githubusercontent.com` blob endpoint; no ROM data is sent. Network/authentication/invalid-metadata failures are explicit errors, not an "up to date" result. Deployments without outbound access can leave checks disabled.
 
 ## Release transaction and retries
 

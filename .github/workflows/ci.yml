@@ -99,6 +99,8 @@ jobs:
         run: ./web/tests/CollectionEngine.Tests.ps1
       - name: Canonical library regressions
         run: dotnet run --project web/tests/Catalog.Tests
+      - name: Build identity, schema compatibility and channel updates
+        run: dotnet run --project web/tests/Build.Tests
       - name: RomM protocol fixture integration
         run: node web/tests/Romm.Tests.mjs
       - name: Start read-only SMB fixture

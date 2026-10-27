@@ -1,6 +1,6 @@
 import { FolderOpen, LoaderCircle, Save, ShieldAlert } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, type Info, type Settings } from '../../api'
+import { api, url, type Info, type Settings, type UpdateResult } from '../../api'
 import { Modal } from '../../components/Presentation'
 
 type Props = { info?: Info; fail: (error: unknown) => void; saved: () => void }
@@ -8,6 +8,8 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const [settings, setSettings] = useState<Settings>()
   const [consoles, setConsoles] = useState<{ Key: string; Name: string }[]>([])
   const [pending, setPending] = useState(false)
+  const [checking, setChecking] = useState(false)
+  const [updateResult, setUpdateResult] = useState<UpdateResult>()
   const [integrations, setIntegrations] = useState<{ virusTotal: boolean; malwareBazaar: boolean; approvedSmbHosts: string[] }>()
   const [browser, setBrowser] = useState(false)
   const [folders, setFolders] = useState<{ path: string; folders: { name: string; path: string; fullPath: string }[] }>()
@@ -19,6 +21,11 @@ export default function SettingsView({ info, fail, saved }: Props) {
   async function browse(path = '.') {
     try { setFolders(await api(`/folders?path=${encodeURIComponent(path)}`)); setBrowser(true) } catch (error) { fail(error) }
   }
+  async function checkUpdates() {
+    setChecking(true); setUpdateResult(undefined)
+    try { setUpdateResult(await api<UpdateResult>('/updates/check', { method: 'POST' })) }
+    catch (error) { fail(error) } finally { setChecking(false) }
+  }
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings(previous => previous ? { ...previous, [key]: value } : previous)
   async function submit(event: FormEvent) {
     event.preventDefault(); setPending(true)
@@ -29,6 +36,22 @@ export default function SettingsView({ info, fail, saved }: Props) {
   const toggle = (key: keyof Settings, title: string, text: string) => <label className="toggle-row" key={key}><span><strong>{title}</strong><small>{text}</small></span><input type="checkbox" role="switch" checked={settings[key] === true} onChange={e => update(key, e.target.checked)} /></label>
   const number = (key: keyof Settings, title: string, min: number, max: number) => <label key={key}>{title}<input type="number" min={min} max={max} required value={String(settings[key])} onChange={e => update(key, Number(e.target.value))} /></label>
   return <form onSubmit={submit}>
+    <section className="panel"><h2>Version & updates</h2>
+      <dl className="server-info">
+        <div><dt>Application version</dt><dd>{info?.version}</dd></div>
+        <div><dt>Build / attempt</dt><dd>{info?.buildNumber ?? 'Local'} / {info?.buildAttempt ?? '-'}</dd></div>
+        <div><dt>Channel</dt><dd>{info?.channel ?? 'Local'}</dd></div>
+        <div><dt>Built (UTC)</dt><dd>{info?.builtUtc ?? 'Local source build'}</dd></div>
+        <div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div>
+        <div><dt>Database schema</dt><dd>{info?.schema ? `${info.schema.version} (supported ${info.schema.minimumSupported}-${info.schema.maximumSupported})` : 'Unavailable'}</dd></div>
+      </dl>
+      <p className="small">Back up application data and storage before upgrading. An older image may require restoring a matching database backup. Containers predating schema checks cannot enforce downgrade protection.</p>
+      <div className="row"><button type="button" disabled={checking} onClick={checkUpdates}>{checking ? 'Checking...' : 'Check for updates'}</button>
+        <a href={url('/diagnostics/build')} download>Download build diagnostics</a>
+        {info?.workflowUrl && <a href={info.workflowUrl} target="_blank" rel="noreferrer">Build workflow</a>}</div>
+      <p className="small muted">Opt-in checks contact GitHub Container Registry only when requested, compare this channel only, and never deploy or change data.</p>
+      {updateResult && <div role="status" className={`notice ${updateResult.schemaCompatible === false ? 'error' : updateResult.status === 'available' ? 'success' : 'subtle'}`}><span>{updateResult.message}{updateResult.version && ` Version ${updateResult.version} · Build ${updateResult.buildNumber}`}</span></div>}
+    </section>
     <section className="panel"><h2>Simple by default. Detailed when you need it.</h2><p>Import ROMs into one Library and choose what to verify. The verification dialog lets you change checks for one run without changing these defaults.</p>
       {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Recommended. Incomplete protection holds affected working copies for review.')}
       {toggle('autoDat', 'Automatic DAT references', 'Download console reference lists; ROM files are not uploaded.')}
@@ -61,7 +84,7 @@ export default function SettingsView({ info, fail, saved }: Props) {
       {toggle('useFolderHints', 'Use folder hints', 'Use directory names to help resolve ambiguous formats.')}
       <div className="form-grid">{number('hashLimitMB', 'Hash limit (MB)', 1, 1048576)}{number('archiveMaxMB', 'Unpack limit (MB)', 1, 1048576)}{number('archiveMaxEntries', 'Maximum archive entries', 1, 100000)}{number('archiveMaxDepth', 'Nested archive depth', 0, 10)}{number('archiveTimeoutSeconds', 'Archive timeout (seconds)', 10, 3600)}</div>
     </section><section className="panel"><div className="section-heading"><div><h2>Server & privacy</h2><p>Deployment configuration is controlled on the server.</p></div></div>
-      <dl className="server-info"><div><dt>Version</dt><dd>{info?.version}</dd></div><div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div><div><dt>Platform</dt><dd>{info?.platform}</dd></div><div><dt>Proxy base path</dt><dd>{info?.pathBase || '/'}</dd></div></dl>
+      <dl className="server-info"><div><dt>Platform</dt><dd>{info?.platform}</dd></div><div><dt>Proxy base path</dt><dd>{info?.pathBase || '/'}</dd></div></dl>
       <div className="notice subtle"><ShieldAlert size={20} /><span>Online lookups send hashes and metadata, not ROM uploads. Configure ROMSORTER_VIRUSTOTAL_KEY and ROMSORTER_MALWAREBAZAAR_KEY as server secrets. Keys are never returned to this browser.</span></div>
       <p className="muted">Linux containers use ClamAV, not Windows Defender. Keep virus signatures updated. Use HTTPS and restrict access through your reverse proxy.</p>
       <p className="muted">Guided Verify & organize moves eligible working copies after checks. Check only never moves ROMs. Expert workflow extraction requires explicit approval; applying a preview uses its saved settings.</p>

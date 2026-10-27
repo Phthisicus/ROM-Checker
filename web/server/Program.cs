@@ -24,6 +24,7 @@ if (Environment.GetEnvironmentVariable("ROMCHECKER_ROLE") == "storage")
 }
 
 var builder = WebApplication.CreateBuilder(args);
+var buildIdentity = BuildIdentity.Load(Path.Combine(AppContext.BaseDirectory, "build-info.json"));
 string Env(string name, string fallback) => Environment.GetEnvironmentVariable(name) ?? fallback;
 var root = Path.TrimEndingDirectorySeparator(Path.GetFullPath(Env("ROMCHECKER_LIBRARY", "/library")));
 var data = Path.GetFullPath(Env("ROMCHECKER_DATA", "/data"));
@@ -43,6 +44,12 @@ if (dataRelative == "." || !Path.IsPathRooted(dataRelative) && dataRelative != "
 var options = new WebOptions(root, data, engine, Env("ROMCHECKER_POWERSHELL", "pwsh"), password, pathBase,
     TimeSpan.FromHours(double.Parse(Env("ROMCHECKER_JOB_TIMEOUT_HOURS", "24"), System.Globalization.CultureInfo.InvariantCulture)));
 Directory.CreateDirectory(data);
+var databaseCompatibility = DatabaseCompatibility.Initialize(data);
+builder.Services.AddSingleton(buildIdentity);
+builder.Services.AddSingleton(databaseCompatibility);
+builder.Services.AddHttpClient<UpdateChecker>(client =>
+    { client.Timeout = TimeSpan.FromSeconds(20); client.MaxResponseContentBufferSize = 2 * 1024 * 1024; })
+    .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<Store>();
 builder.Services.AddSingleton<LibraryPaths>();
@@ -98,6 +105,11 @@ if (proxies.Length > 0)
     });
 }
 var app = builder.Build();
+app.Logger.LogInformation("ROM Checker {Version}, build {BuildNumber}, attempt {BuildAttempt}, channel {Channel}, commit {Commit}, built {BuiltUtc}, schema {Schema}",
+    buildIdentity.Version, buildIdentity.BuildNumber, buildIdentity.BuildAttempt, buildIdentity.Channel,
+    buildIdentity.Commit, buildIdentity.BuiltUtc, databaseCompatibility.Version);
+if (buildIdentity.Channel == "local")
+    app.Logger.LogWarning("Local build identity: this is not a versioned published container.");
 app.Use(async (context, next) =>
 {
     try { await next(context); }

@@ -4,7 +4,7 @@ services:
     build:
       context: .
       args:
-        VERSION: ${ROMCHECKER_VERSION:-0.2.0-dev}
+        VERSION: ${ROMCHECKER_VERSION:-0.0.0-local}
     restart: unless-stopped
     ports:
       - "127.0.0.1:${ROMCHECKER_PORT:-8080}:8080"
@@ -18,6 +18,9 @@ services:
       ROMCHECKER_STORAGE_TOKEN: ${ROMCHECKER_STORAGE_TOKEN:?Set a random storage token of at least 32 characters}
       ROMCHECKER_SMB_HOSTS: ${ROMCHECKER_SMB_HOSTS:-}
       ROMCHECKER_ROMM_EXPORT_ROOT: /storage/romm-library
+      ROMCHECKER_CHECK_UPDATES: ${ROMCHECKER_CHECK_UPDATES:-false}
+      ROMCHECKER_UPDATE_USERNAME: ${ROMCHECKER_UPDATE_USERNAME:-}
+      ROMCHECKER_UPDATE_TOKEN: ${ROMCHECKER_UPDATE_TOKEN:-}
       ROMSORTER_VIRUSTOTAL_KEY: ${ROMSORTER_VIRUSTOTAL_KEY:-}
       ROMSORTER_MALWAREBAZAAR_KEY: ${ROMSORTER_MALWAREBAZAAR_KEY:-}
     volumes:

@@ -5,11 +5,25 @@ import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSy
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { calculateVersion, compareVersions, parseVersion, renderNotes, validateNote } from './release.mjs'
+import { buildInfo } from './build-info.mjs'
 
 const sha = 'a'.repeat(40)
 const priorSha = 'b'.repeat(40)
 const feature = { type: 'feature', title: 'Console-scoped verification', description: 'Check one console without changing the rest of your library.' }
 const input = { branch: 'main', tags: [], commits: [], notes: [], fallback: '0.2.0', sha }
+test('published build identities reject placeholders and channel/version inconsistencies', () => {
+  const env = { VERSION: '1.3.0-development.142', CHANNEL: 'development', REVISION: sha,
+    BUILD_NUMBER: '142', BUILD_ATTEMPT: '1', BUILT_UTC: '2026-10-27T20:00:00Z',
+    WORKFLOW_URL: 'https://github.com/Phthisicus/ROM-Checker/actions/runs/123' }
+  assert.equal(buildInfo(env).buildNumber, 142)
+  assert.equal(buildInfo({}).channel, 'local')
+  for (const change of [{ REVISION: 'development' }, { BUILD_NUMBER: '0' }, { BUILD_ATTEMPT: '-1' },
+    { BUILT_UTC: 'invalid' }, { CHANNEL: 'stable' }, { WORKFLOW_URL: 'https://example.invalid' },
+    { VERSION: '1.3.0-development.141' }])
+    assert.throws(() => buildInfo({ ...env, ...change }))
+  assert.equal(buildInfo({ ...env, VERSION: '1.3.0-beta.2', CHANNEL: 'beta' }).channel, 'beta')
+  assert.equal(buildInfo({ ...env, VERSION: '1.3.0', CHANNEL: 'stable' }).version, '1.3.0')
+})
 test('only release branches can allocate versions', () => {
   for (const branch of ['development', 'feature/test', '']) assert.throws(() => calculateVersion({ ...input, branch }), /Only beta/)
 })
@@ -88,6 +102,7 @@ test('real git history yields incremental beta notes and cumulative stable notes
     writeFileSync(join(notes, 'feature.json'), JSON.stringify(feature))
     git('add', '.'); git('commit', '--quiet', '-m', 'feat: console scoped checks')
     const first = git('rev-parse', 'HEAD')
+    assert.equal(run('development', first, 'owner/repo', '142').trim(), '1.1.0-development.142')
     run('plan', 'beta', first, 'owner/repo')
     const read = () => JSON.parse(readFileSync(join(directory, '.release', 'release-plan.json'), 'utf8'))
     assert.equal(read().version, '1.1.0-beta.1')
@@ -122,6 +137,8 @@ test('real git history yields incremental beta notes and cumulative stable notes
     assert.equal(read().version, '1.1.1-beta.1')
     assert.equal(read().baseline, 'v1.1.0')
     assert.equal(read().notes.length, 1)
+    assert.equal(run('development', first, 'owner/repo', '142').trim(), '1.1.0-development.142',
+      'A later stable tag on a descendant must not change an earlier development build version')
     const manifest = join(directory, '.release', 'release-plan.json')
     const packages = join(directory, 'web', 'client')
     mkdirSync(packages, { recursive: true })

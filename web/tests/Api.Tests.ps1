@@ -72,7 +72,7 @@ try {
     }
     Assert $ready 'Server becomes healthy'
     ExpectStatus 401 { Request '/jobs' }
-    foreach ($path in '/settings','/catalog','/info','/folders','/jobs/missing/results','/jobs/missing/artifacts/report.html') {
+    foreach ($path in '/settings','/catalog','/info','/diagnostics/build','/folders','/jobs/missing/results','/jobs/missing/artifacts/report.html') {
         ExpectStatus 401 { Request $path }
     }
     ExpectStatus 403 { Request '/login' 'POST' @{ password = $env:ROMCHECKER_PASSWORD } @{} }

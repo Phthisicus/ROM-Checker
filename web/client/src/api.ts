@@ -31,7 +31,12 @@ export type Settings = {
   retailOnly: boolean; onlineCheck: string; resumeScans: boolean; archiveMaxMB: number
   archiveMaxEntries: number; archiveMaxDepth: number; archiveTimeoutSeconds: number
 }
-export type Info = { name: string; version: string; commit: string; library: string; pathBase: string; platform: string; antivirus: string }
+export type Info = {
+  name: string; version: string; commit: string; library: string; pathBase: string; platform: string; antivirus: string
+  buildNumber?: number; buildAttempt?: number; channel?: string; builtUtc?: string; workflowUrl?: string
+  schema?: { version: number; minimumSupported: number; maximumSupported: number }
+}
+export type UpdateResult = { status: string; message: string; version?: string; commit?: string; buildNumber?: number; schemaCompatible?: boolean }
 export type Job = {
   id: string; action: string; status: string; created: string; finished?: string; error?: string
   request: { sourceId?: string; journal?: string; batchId?: string; selection?: string[]; organize?: boolean }; settings: Settings
