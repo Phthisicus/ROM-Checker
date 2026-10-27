@@ -103,6 +103,8 @@ GitHub Actions serializes release deliveries across beta and main. It does not c
 
 The Actions `release-record-*` artifact retains the plan, notes, digest, and diagnostics for 90 days. The GitHub release permanently includes `release-manifest.json`, `image-digest.txt`, and `SHA256SUMS`; validate downloaded assets with `sha256sum -c SHA256SUMS`. SBOM/provenance attestations are attached to the registry image. This is build provenance, not a separately configured release-signing identity.
 
+Automatic Docker `.dockerbuild` artifact uploads are disabled in CI and delivery to avoid consuming Actions artifact storage on every build. Build summaries and logs remain available; registry images and their SBOM/provenance are unaffected. Explicit browser-failure and release-record uploads still require available Actions artifact storage. If those uploads hit the quota, check the repository owner's Actions storage usage in GitHub billing settings; usage can come from other repositories and storage accounting is not immediate. This repository does not automatically delete existing artifacts.
+
 ## GitHub setup and protection
 
 Install the files on all three branches through reviewed promotions. Actions must be enabled; the delivery job requests `contents: write` and `packages: write`. For an existing GHCR package, grant this repository Actions access under the package's settings. No personal access token or deployment SSH secret is required for releases.

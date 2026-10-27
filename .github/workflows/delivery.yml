@@ -4,6 +4,8 @@ on:
     branches: [development, beta, main]
 permissions:
   contents: read
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
 # Serialize both channels so tag allocation and moving aliases cannot race.
 # GitHub retains only the newest pending run in a concurrency group.
 concurrency:

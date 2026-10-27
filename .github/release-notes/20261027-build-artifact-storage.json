@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Avoid unnecessary Docker build-record artifact uploads",
+  "description": "CI and development, beta, and main container delivery no longer upload optional Docker build records to Actions artifact storage. This prevents build-record quota warnings while preserving build summaries, container publication, vulnerability gates, and registry SBOM/provenance."
+}

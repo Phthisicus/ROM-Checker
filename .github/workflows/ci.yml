@@ -6,6 +6,8 @@ on:
   workflow_call:
 permissions:
   contents: read
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
 jobs:
   release-policy:
     name: Release policy
