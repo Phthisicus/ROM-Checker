@@ -3,8 +3,8 @@ import { useEffect, useState, type FormEvent } from 'react'
 import { api, url, type Info, type Settings, type UpdateResult } from '../../api'
 import { Modal } from '../../components/Presentation'
 
-type Props = { info?: Info; fail: (error: unknown) => void; saved: () => void }
-export default function SettingsView({ info, fail, saved }: Props) {
+type Props = { advanced?: boolean; info?: Info; fail: (error: unknown) => void; saved: () => void }
+export default function SettingsView({ advanced, info, fail, saved }: Props) {
   const [settings, setSettings] = useState<Settings>()
   const [consoles, setConsoles] = useState<{ Key: string; Name: string }[]>([])
   const [pending, setPending] = useState(false)
@@ -41,27 +41,28 @@ export default function SettingsView({ info, fail, saved }: Props) {
         <div><dt>Application version</dt><dd>{info?.version}</dd></div>
         <div><dt>Build / attempt</dt><dd>{info?.buildNumber ?? 'Local'} / {info?.buildAttempt ?? '-'}</dd></div>
         <div><dt>Channel</dt><dd>{info?.channel ?? 'Local'}</dd></div>
-        <div><dt>Built (UTC)</dt><dd>{info?.builtUtc ?? 'Local source build'}</dd></div>
+        {advanced && <><div><dt>Built (UTC)</dt><dd>{info?.builtUtc ?? 'Local source build'}</dd></div>
         <div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div>
-        <div><dt>Database schema</dt><dd>{info?.schema ? `${info.schema.version} (supported ${info.schema.minimumSupported}-${info.schema.maximumSupported})` : 'Unavailable'}</dd></div>
+        <div><dt>Database schema</dt><dd>{info?.schema ? `${info.schema.version} (supported ${info.schema.minimumSupported}-${info.schema.maximumSupported})` : 'Unavailable'}</dd></div></>}
       </dl>
       <p className="small">Back up application data and storage before upgrading. An older image may require restoring a matching database backup. Containers predating schema checks cannot enforce downgrade protection.</p>
-      <div className="row"><button type="button" disabled={checking} onClick={checkUpdates}>{checking ? 'Checking...' : 'Check for updates'}</button>
+      <div className="row wrap"><button type="button" disabled={checking} onClick={checkUpdates}>{checking ? 'Checking...' : 'Check for updates'}</button>
         <a href={url('/diagnostics/build')} download>Download build diagnostics</a>
         {info?.workflowUrl && <a href={info.workflowUrl} target="_blank" rel="noreferrer">Build workflow</a>}</div>
       <p className="small muted">Opt-in checks contact GitHub Container Registry only when requested, compare this channel only, and never deploy or change data.</p>
       {updateResult && <div role="status" className={`notice ${updateResult.schemaCompatible === false ? 'error' : updateResult.status === 'available' ? 'success' : 'subtle'}`}><span>{updateResult.message}{updateResult.version && ` Version ${updateResult.version} · Build ${updateResult.buildNumber}`}</span></div>}
     </section>
-    <section className="panel"><h2>Simple by default. Detailed when you need it.</h2><p>Import ROMs into one Library and choose what to verify. The verification dialog lets you change checks for one run without changing these defaults.</p>
+    <section className="panel"><h2>Default verification policy</h2><p>Choose the checks used by new operations. Advanced mode lets you adjust individual checks for one run.</p>
       {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Recommended. Incomplete protection holds affected working copies for review.')}
       {toggle('autoDat', 'Automatic DAT references', 'Download console reference lists; ROM files are not uploaded.')}
       {toggle('identifyUnknown', 'Identify unknown formats', 'Optional online fingerprint lookup for files without a known console.')}
-      <p className="small">Library verification uses console folders, preserves required related files, and reports duplicates without deleting them. Advanced Expert settings below do not change these safeguards.</p></section>
+      <p className="small">Library verification preserves required related files and reports duplicates without deleting them. Advanced mode changes what you see, not these safeguards.</p></section>
     <section className="panel"><h2>Connections & privacy</h2><p>Reference services receive fingerprints and platform metadata—not ROM files. Keep this application behind HTTPS when accessed beyond localhost.</p>
       <dl className="server-info"><div><dt>VirusTotal</dt><dd>{integrations ? integrations.virusTotal ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div><div><dt>MalwareBazaar</dt><dd>{integrations ? integrations.malwareBazaar ? 'API key configured' : 'Not configured · optional' : 'Loading...'}</dd></div>
         <div><dt>Network shares</dt><dd>{integrations?.approvedSmbHosts.length ? integrations.approvedSmbHosts.join(', ') : 'No approved servers configured'}</dd></div></dl>
       <p className="small">An administrator configures API keys and approved network-share servers on the server. Secrets are never returned to this browser. Share credentials are used for a live connection, not saved to disk.</p></section>
-    <details><summary>Advanced engine & server settings</summary><div className="settings-grid"><section className="panel"><div className="section-heading"><div><h2>Server library & organization</h2><p>Configure Expert workspace previews. No files are moved by changing settings.</p></div><FolderOpen size={22} /></div>
+    {!advanced && <p className="small muted">Advanced mode reveals detailed engine settings. Switching modes does not change your verification policy.</p>}
+    {advanced && <details><summary>Advanced engine & server settings</summary><div className="settings-grid"><section className="panel"><div className="section-heading"><div><h2>Server library & organization</h2><p>Configure advanced workspace previews. No files are moved by changing settings.</p></div><FolderOpen size={22} /></div>
       <label>Server library<input readOnly value={info?.library ?? ''} /><small className="muted">Set ROMCHECKER_LIBRARY on the server to change this root.</small></label>
       <div className="form-grid"><label>Console filter<select value={settings.console} onChange={e => update('console', e.target.value)}><option value="All">All consoles (automatic)</option>{consoles.map(c => <option key={c.Key} value={c.Key}>{c.Name}</option>)}</select></label>
         <label>Sorting layout<select value={settings.layout} onChange={e => update('layout', e.target.value)}>{['ByConsole', 'Validity', 'Emulator', 'Frontend', 'RetroArch', 'Classic'].map(layout => <option key={layout}>{layout}</option>)}</select></label>
@@ -88,7 +89,7 @@ export default function SettingsView({ info, fail, saved }: Props) {
       <div className="notice subtle"><ShieldAlert size={20} /><span>Online lookups send hashes and metadata, not ROM uploads. Configure ROMSORTER_VIRUSTOTAL_KEY and ROMSORTER_MALWAREBAZAAR_KEY as server secrets. Keys are never returned to this browser.</span></div>
       <p className="muted">Linux containers use ClamAV, not Windows Defender. Keep virus signatures updated. Use HTTPS and restrict access through your reverse proxy.</p>
       <p className="muted">Guided Verify & organize moves eligible working copies after checks. Check only never moves ROMs. Expert workflow extraction requires explicit approval; applying a preview uses its saved settings.</p>
-    </section></div></details>
+    </section></div></details>}
     <div className="settings-save"><span className="muted">Settings apply to new operations. Existing previews retain their settings.</span><button className="primary" disabled={pending}>{pending ? <LoaderCircle className="spin" size={17} /> : <Save size={17} />}Save settings</button></div>
     {browser && <Modal title="Choose a DAT folder" close={() => setBrowser(false)}><p className="mono">{folders?.path}</p><button type="button" onClick={() => browse('.')}>Library root</button><div className="folder-browser">{folders?.folders.map(folder => <div className="row spread" key={folder.path}><button type="button" onClick={() => browse(folder.path)}><FolderOpen size={17} />{folder.name}</button><button type="button" onClick={() => { update('datFolder', folder.fullPath); setBrowser(false) }}>Select</button></div>)}</div><p className="small muted">Only directories within the mounted library are available. Links are excluded.</p></Modal>}
   </form>

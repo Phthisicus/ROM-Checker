@@ -106,7 +106,8 @@ describe('RomM integration', () => {
     await screen.findByText(/Remote import queued/)
     const imported = fetcher.mock.calls.find(([path]) => path === '/api/romm/import')!
     expect(JSON.parse(imported[1]!.body as string)).toEqual({ romIds: [12], confirm: true })
-    fireEvent.click(screen.getByRole('checkbox', { name: /local:fixture/ }))
+    expect(screen.queryByText('Raw metadata')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: /Remote fixture · linked/ }))
     fireEvent.click(screen.getByRole('button', { name: /Refresh selected metadata/ }))
     fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Confirm metadata refresh' }))
     await screen.findByText(/Metadata refresh queued/)

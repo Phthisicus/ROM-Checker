@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
 import { api, bytes } from './api'
 import App from './App'
@@ -6,10 +6,11 @@ import { Badge, Modal } from './components/Presentation'
 
 describe('web workspace', () => {
   it('keeps incomplete protection visually distinct from verified results', () => {
-    render(<><Badge value="Incomplete" /><Badge value="Original" /><Badge value="Malicious" /></>)
+    render(<><Badge value="Incomplete" /><Badge value="Original" /><Badge value="Malicious" /><Badge value="completed-with-errors" /></>)
     expect(screen.getByText('Incomplete')).toHaveClass('warning')
     expect(screen.getByText('Original')).toHaveClass('success')
     expect(screen.getByText('Malicious')).toHaveClass('danger')
+    expect(screen.getByText('completed with errors')).toHaveClass('danger')
   })
   it('renders an accessible modal and close action', () => {
     const close = vi.fn()
@@ -46,8 +47,8 @@ describe('web workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
     expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
     expect(await screen.findByText('v0.2.0 · Build 142')).toHaveAttribute('data-frontend-version', __APP_VERSION__)
-    expect(screen.getByRole('button', { name: 'Integrations' })).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Imports' }))
+    expect(screen.queryByRole('button', { name: 'Integrations' })).not.toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: 'Add games' }))
     await waitFor(() => expect(screen.getByRole('button', { name: /Upload ROMs/ })).toBeEnabled())
     expect(screen.queryByRole('button', { name: /Check library/ })).not.toBeInTheDocument()
     expect(fetcher.mock.calls.filter(([path]) => path === '/api/jobs')).toHaveLength(1)

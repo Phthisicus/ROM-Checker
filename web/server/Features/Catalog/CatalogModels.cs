@@ -42,11 +42,12 @@ public sealed record CatalogEntry
 }
 public sealed record CatalogQuery(string? Q = null, string? Console = null, string? Category = null,
     string? Checks = null, string? Reference = null, bool? Attention = null, string? Publication = null,
-    int Page = 1, int Size = 100, string? SyncStatus = null);
+    int Page = 1, int Size = 100, string? SyncStatus = null, string? Sort = null, bool? Duplicates = null);
 public sealed record CatalogGroup(string Key, string Name, int Total, int Checked, int Attention, string[] Ids);
+public sealed record CatalogConsole(string Key, string Name);
 public sealed record CatalogCounts(int Total, int Checked, int Unchecked, int Attention, int Eligible, int Missing);
 public sealed record CatalogPage(CatalogEntry[] Items, int Total, int Filtered, int Page, int Size,
-    CatalogGroup[] Groups, string[] Ids, string[] Categories, CatalogCounts Counts);
+    CatalogGroup[] Groups, string[] Ids, string[] Categories, CatalogCounts Counts, CatalogConsole[]? Consoles = null);
 public sealed record CatalogApproveRequest(string[] Ids, string Reason, bool Confirm = false, int MaxSelection = 1000,
     [property: JsonPropertyName("sha256")] Dictionary<string, string>? SHA256 = null);
 public sealed record CatalogVerifyRequest(string[] Ids, EngineSettings? Settings = null,

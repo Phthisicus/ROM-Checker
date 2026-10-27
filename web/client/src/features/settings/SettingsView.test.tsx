@@ -17,7 +17,7 @@ it('shows baked build identity, downloads diagnostics and only checks updates on
     workflowUrl: 'https://github.com/Phthisicus/ROM-Checker/actions/runs/123',
     schema: { version: 1, minimumSupported: 1, maximumSupported: 1 },
     library: '/library', pathBase: '', platform: 'Linux', antivirus: 'ClamAV' }
-  render(<SettingsView info={info} fail={vi.fn()} saved={vi.fn()} />)
+  render(<SettingsView advanced info={info} fail={vi.fn()} saved={vi.fn()} />)
   expect(await screen.findByText('142 / 1')).toBeInTheDocument()
   expect(screen.getByText('1 (supported 1-1)')).toBeInTheDocument()
   expect(screen.getByRole('link', { name: 'Download build diagnostics' })).toHaveAttribute('href', '/api/diagnostics/build')

@@ -4,7 +4,7 @@ import { label, type Job, type Progress } from '../api'
 import { actions } from '../features/jobs/actions'
 
 export function Badge({ value }: { value: string }) {
-  const tone = /failed|malicious|suspicious|quarantine|corrupt|threat|interrupted/i.test(value) ? 'danger'
+  const tone = /failed|errors|malicious|suspicious|quarantine|corrupt|threat|interrupted/i.test(value) ? 'danger'
     : /warning|unverified|unknown|incomplete|disabled|cancel/i.test(value) ? 'warning'
       : /completed|original|verified|clean|valid|moved/i.test(value) ? 'success' : 'neutral'
   return <span className={`badge ${tone}`}>{label(value || 'Unknown')}</span>

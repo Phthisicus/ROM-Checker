@@ -18,9 +18,9 @@ export type CollectionFile = {
 type ConsoleGroup = { key: string; name: string; folder: string; total: number; checkedFiles: number; attention: number; organized: number; ids: string[] }
 type CollectionPage = { detected: boolean; total: number; filtered: number; page: number; size: number; checkedFiles: number; attention: number; organized: number; datMatches: number; onlineMatches: number; threats: number; groups: ConsoleGroup[]; items: CollectionFile[] }
 type Capacity = { availableBytes: number; reserveBytes: number; preparationBytes: number; originalBytes: number; processingBytes: number }
-type Props = { batchId: string; select: (id: string) => void; start: StartJob; jobs: Job[]; progress: Progress | null; fail: (error: unknown) => void; recovery: () => void }
+type Props = { advanced?: boolean; batchId: string; select: (id: string) => void; start: StartJob; jobs: Job[]; progress: Progress | null; fail: (error: unknown) => void; recovery: () => void }
 export const verificationText = (file: CollectionFile) => !file.CheckedUtc ? 'Not checked' : file.HoldReason ? 'Needs attention' : 'Checks completed'
-export default function CollectionsView({ batchId, select, start, jobs, progress, fail, recovery }: Props) {
+export default function CollectionsView({ advanced, batchId, select, start, jobs, progress, fail, recovery }: Props) {
   const [enabled, setEnabled] = useState<boolean>()
   const [collections, setCollections] = useState<Batch[]>([])
   const [data, setData] = useState<CollectionPage>()
@@ -160,7 +160,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
         }
         void upload(Array.from(event.dataTransfer.files))
       }}>
-        <div className="hero-symbol"><Upload size={30} /></div><div><span className="eyebrow">ADD TO YOUR ONE LIBRARY</span><h2>A folder full of games. A little more order.</h2>
+        <div className="hero-symbol"><Upload size={30} /></div><div><span className="eyebrow">ADD TO YOUR COLLECTION</span><h2>Bring your games home.</h2>
           <p>Upload mixed-console ROMs. We group them by console, explain the findings, and organize verified working copies. Your originals stay untouched.</p></div>
         <label>Import name <span className="muted">(optional)</span><input value={name} onChange={event => setName(event.target.value)} maxLength={120} placeholder="For example, October folder upload" /></label>
         <div className="row wrap"><button className="primary" disabled={locked} onClick={() => uploadInput.current?.click()}><Upload size={17} />Upload ROMs / Choose folder</button>
@@ -241,7 +241,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
         </section>
         {selected.length > 0 && <div className="selection-bar"><span><strong>{selected.length}</strong> files selected · required companions are included automatically</span><div className="row"><button onClick={() => setSelected([])}>Clear</button><button className="primary" disabled={locked || !ready} onClick={() => prepareVerification(selected)}>Verify selected</button></div></div>}
         <section className="panel"><div className="section-heading"><div><h2>Download this import</h2><p>Full downloads include pending and held files, reports, and recovery journals. Console ZIPs contain files already organized in that console folder.</p></div><Download size={22} /></div>
-          <div className="row wrap">{ready && !locked && <a className="button primary" href={downloadUrl(batchId, '')} download>Download complete import</a>}<button disabled={locked} onClick={recovery}>Undo changes & recovery</button></div></section>
+          <div className="row wrap">{ready && !locked && <a className="button primary" href={downloadUrl(batchId, '')} download>Download complete import</a>}{advanced && <button disabled={locked} onClick={recovery}>Undo changes & recovery</button>}</div></section>
       </> : ready && <section className="panel"><h3>Get your ROMs ready</h3><p>Detecting consoles groups files without moving them or claiming they are verified.</p><button disabled={locked} onClick={() => start('detect', { batchId })}>Detect consoles</button></section>}
     </>}
     {message && <div className="notice subtle" role="status">{message}</div>}
@@ -255,17 +255,17 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
     {options && settings && <Modal title={`Verify ${options.count} selected file${options.count === 1 ? '' : 's'}`} close={() => setOptions(undefined)}>
       <p>Related tracks and companion files are included automatically. Your original uploads will not change.</p>
       <label>What should happen after checking?<select aria-label="Verification preset" value={preset} onChange={event => setPreset(event.target.value)}>
-        <option value="organize">Verify & organize — Recommended</option><option value="check">Check only — Do not move files</option><option value="custom">Custom checks & organization</option></select></label>
+        <option value="organize">Verify & organize — Recommended</option><option value="check">Check only — Do not move files</option>{advanced && <option value="custom">Custom checks & organization</option>}</select></label>
       <p>{preset === 'check' ? 'Results are saved for this import and appear in your Library. No ROM files are moved.' : 'Eligible working copies are automatically organized into console folders. Unresolved identities, failed enabled checks, unsafe content, and integrity findings are held for review. No files are deleted or overwritten.'}</p>
       <div className="check-overview"><p><Shield size={16} />Local antivirus: <strong>{settings.defenderScan ? 'Enabled' : 'Skipped'}</strong></p><p>Reference downloads: <strong>{settings.autoDat ? 'Enabled' : 'Skipped'}</strong> · Online identity: <strong>{settings.hasheous === 'Off' && !settings.identifyUnknown ? 'Skipped' : 'Enabled'}</strong></p><p>Optional online malware checks: <strong>{settings.onlineCheck === 'Off' ? 'Skipped' : 'Enabled when API keys are configured'}</strong></p></div>
-      <details open={preset === 'custom'}><summary><Settings2 size={15} />Advanced checks</summary><div className="advanced-checks">
+      {advanced && <details open={preset === 'custom'}><summary><Settings2 size={15} />Advanced checks</summary><div className="advanced-checks">
         {(['defenderScan', 'autoDat', 'identifyUnknown', 'requireDatMatch', 'strict', 'resumeScans', 'sortByCategory'] as const).map(key => <label className="row" key={key}><input type="checkbox" checked={settings[key]} onChange={event => setSettings({ ...settings, [key]: event.target.checked })} />{{
           defenderScan: 'Scan with local antivirus', autoDat: 'Download console reference lists', identifyUnknown: 'Identify unknown files online', requireDatMatch: 'Require a reference match to organize', strict: 'Strict integrity validation', resumeScans: 'Reuse unchanged local checks (fingerprints revalidated)', sortByCategory: 'Separate non-retail classifications inside console folders',
         }[key]}</label>)}
         <label>Online identity<select aria-label="Online identity" value={settings.hasheous} onChange={event => setSettings({ ...settings, hasheous: event.target.value })}>{['Off', 'Unverified', 'All'].map(value => <option key={value}>{value}</option>)}</select></label>
         <label>Online malware checks<select aria-label="Online malware checks" value={settings.onlineCheck} onChange={event => setSettings({ ...settings, onlineCheck: event.target.value })}>{['Off', 'Risky', 'Unverified', 'All'].map(value => <option key={value}>{value}</option>)}</select></label>
         <p className="small">Per-run choices do not change Settings. Console folders and related sets are preserved. Duplicate content is reported, not deleted or relocated. Archives remain packed; use the Expert workspace to approve extraction before refreshing detection.</p>
-      </div></details>
+      </div></details>}
       {hasOnline && <label className="consent"><input type="checkbox" checked={onlineConsent} onChange={event => setOnlineConsent(event.target.checked)} /><span>I understand enabled services may receive file fingerprints and platform metadata—not ROM files. Reference lists may be downloaded.</span></label>}
       <button className="primary" disabled={locked || !!hasOnline && !onlineConsent} onClick={async () => {
         setOptions(undefined); setSelected([])
@@ -278,7 +278,7 @@ export default function CollectionsView({ batchId, select, start, jobs, progress
       <div className="file-evidence">{[['Identity', file.Authenticity || 'Not checked'], ['Integrity', file.IntegrityStatus || 'Not checked'], ['Antivirus', file.AntivirusStatus || 'Not checked'], ['Online malware checks', file.OnlineMalwareStatus || 'Not checked'], ['Security', file.MalwareStatus || 'Not checked']].map(([key, value]) => <div key={key}><span>{key}</span><strong>{value}</strong></div>)}</div>
       {file.Threats && <div className="notice error">{file.Threats}</div>}{file.Notes && <p>{file.Notes}</p>}
       <p className="small">An unusual structure is not proof that a ROM is unusable. Reference identity is separate from security. No automatic repair or deletion is performed.</p>
-      <details><summary>Technical evidence & current location</summary><dl className="file-paths">{(['RelativePath', 'Category', 'Header', 'DatMatch', 'DatStrength', 'HashMatch', 'Sources', 'SHA256', 'SHA1', 'MD5', 'CRC32', 'CheckedUtc'] as const).map(key => <div key={key}><dt>{key}</dt><dd className="mono">{file[key] || 'Not available / not applicable'}</dd></div>)}</dl></details>
+      {advanced && <details><summary>Technical evidence & current location</summary><dl className="file-paths">{(['RelativePath', 'Category', 'Header', 'DatMatch', 'DatStrength', 'HashMatch', 'Sources', 'SHA256', 'SHA1', 'MD5', 'CRC32', 'CheckedUtc'] as const).map(key => <div key={key}><dt>{key}</dt><dd className="mono">{file[key] || 'Not available / not applicable'}</dd></div>)}</dl></details>}
       <div className="dialog-actions"><button disabled={locked || !ready} onClick={() => { const id = file.CollectionId; setFile(undefined); void prepareVerification([id]) }}>Verify this ROM</button>{ready && !locked && <a className="button" href={downloadUrl(batchId, file.RelativePath)} download>Download current file</a>}</div></Modal>}
   </div>
 }

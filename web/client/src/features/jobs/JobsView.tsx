@@ -21,11 +21,11 @@ export default function JobsView({ expert, jobs, jobId, detail, log, setJobId, s
             {busy(detail.job) && <ProgressCard job={detail.job} progress={detail.progress} />}
             {detail.job.error && <div className="notice error">{detail.job.error}</div>}
             {detail.summary && <div className="summary-counters">{Object.entries(detail.summary.Counters ?? {}).map(([key, value]) => <span key={key}><strong>{value}</strong>{key}</span>)}</div>}
-            <div className="row wrap"><a className="button secondary" href={url(`/jobs/${jobId}/artifacts/output.log`)} download><Download size={16} />Download log</a>
+            <div className="row wrap">{expert && <a className="button secondary" href={url(`/jobs/${jobId}/artifacts/output.log`)} download><Download size={16} />Download log</a>}
               <button onClick={() => setTab('Library')}>Open library <ArrowRight size={16} /></button>
               {detail.job.request.batchId && <button onClick={() => openCollection(detail.job.request.batchId!)}>Open source import <ArrowRight size={16} /></button>}
               {expert && preview(detail.job) && <button onClick={() => { selectResults(jobId); setTab('Changes') }}>Review move plan <ArrowRight size={16} /></button>}
               {busy(detail.job) && ['scan', 'inventory', 'plan', 'history', 'undo-preview', 'cleanup-preview'].includes(detail.job.action) && <button className="danger-button" onClick={() => api(`/jobs/${jobId}/cancel`, { method: 'POST' }).then(refresh).catch(fail)}>Cancel job</button>}
             </div>{!!detail.summary?.ServiceIssues?.length && <div className="notice error" role="alert"><div><strong>Application / service issues</strong>{detail.summary.ServiceIssues.map(issue => <p key={issue}>{issue}</p>)}</div></div>}
-            <details><summary>Technical details & engine output</summary><pre className="log" aria-label="Engine output">{log || 'Waiting for output...'}</pre><p className="small muted">Showing the latest 64 KB. File-changing operations cannot be cancelled midway; use recovery after completion.</p></details></> : <Empty title="Select an operation">Inspect live progress, logs, and warnings.</Empty>}</section></div>
+            {expert && <details><summary>Technical details & engine output</summary><pre className="log" aria-label="Engine output">{log || 'Waiting for output...'}</pre><p className="small muted">Showing the latest 64 KB. File-changing operations cannot be cancelled midway; use recovery after completion.</p></details>}</> : <Empty title="Select an operation">Follow progress and review any findings.</Empty>}</section></div>
 }

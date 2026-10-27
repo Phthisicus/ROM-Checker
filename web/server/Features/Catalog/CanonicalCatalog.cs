@@ -46,9 +46,12 @@ public sealed class CanonicalCatalog(CatalogDatabase database, WebOptions option
         if (query.Page < 1 || query.Size is < 1 or > 1000) throw new RequestException("Page must be positive; size must be 1-1000.");
         if (query.Checks is not (null or "" or "checked" or "unchecked") ||
             query.Reference is not (null or "" or "matched" or "unmatched" or "modified") ||
-            query.Publication is not (null or "" or "eligible" or "blocked"))
+            query.Publication is not (null or "" or "eligible" or "blocked") ||
+            query.Sort is not (null or "" or "name" or "name-desc" or "console" or "checked" or "size"))
             throw new RequestException("Invalid catalog filter.");
         var all = Entries();
+        var copies = all.Where(entry => entry.SHA256.Length == 64).GroupBy(entry => entry.SHA256, StringComparer.OrdinalIgnoreCase)
+            .Where(group => group.Count() > 1).Select(group => group.Key).ToHashSet(StringComparer.OrdinalIgnoreCase);
         var filtered = all.Where(entry =>
             (string.IsNullOrWhiteSpace(query.Q) || $"{entry.FileName} {entry.RelativePath} {entry.ConsoleName}".Contains(query.Q, StringComparison.OrdinalIgnoreCase)) &&
             (string.IsNullOrEmpty(query.Console) || entry.Console == query.Console) &&
@@ -56,10 +59,20 @@ public sealed class CanonicalCatalog(CatalogDatabase database, WebOptions option
             (string.IsNullOrEmpty(query.Checks) || (entry.CheckStatus == "checked") == (query.Checks == "checked")) &&
             (string.IsNullOrEmpty(query.Reference) || entry.ReferenceStatus == query.Reference) &&
             (string.IsNullOrEmpty(query.SyncStatus) || entry.SyncStatus == query.SyncStatus) &&
+            (query.Duplicates is null || query.Duplicates.Value == copies.Contains(entry.SHA256)) &&
             (query.Attention is null || query.Attention.Value == !entry.PublishEligible) &&
             (string.IsNullOrEmpty(query.Publication) || entry.PublishEligible == (query.Publication == "eligible")))
-            .OrderBy(entry => entry.ConsoleName, StringComparer.OrdinalIgnoreCase)
-            .ThenBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase).ThenBy(entry => entry.Id).ToArray();
+            .ToArray();
+        var ordered = query.Sort switch
+        {
+            "name" => filtered.OrderBy(entry => entry.FileName, StringComparer.OrdinalIgnoreCase),
+            "name-desc" => filtered.OrderByDescending(entry => entry.FileName, StringComparer.OrdinalIgnoreCase),
+            "checked" => filtered.OrderByDescending(entry => entry.CheckedUtc),
+            "size" => filtered.OrderByDescending(entry => entry.Length),
+            _ => filtered.OrderBy(entry => entry.ConsoleName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.RelativePath, StringComparer.OrdinalIgnoreCase)
+        };
+        filtered = ordered.ThenBy(entry => entry.Id, StringComparer.Ordinal).ToArray();
         var groups = filtered.GroupBy(entry => entry.Console).Select(group => new CatalogGroup(
             group.Key, group.First().ConsoleName, group.Count(), group.Count(entry => entry.CheckStatus == "checked"),
             group.Count(entry => !entry.PublishEligible), group.Select(entry => entry.Id).ToArray())).ToArray();
@@ -67,7 +80,9 @@ public sealed class CanonicalCatalog(CatalogDatabase database, WebOptions option
             all.Length, filtered.Length, query.Page, query.Size, groups, filtered.Select(entry => entry.Id).ToArray(),
             all.Select(entry => entry.Category).Distinct().Order().ToArray(),
             new(all.Length, all.Count(entry => entry.CheckStatus == "checked"), all.Count(entry => entry.CheckStatus != "checked"),
-                all.Count(entry => !entry.PublishEligible), all.Count(entry => entry.PublishEligible), all.Count(entry => entry.Missing)));
+                all.Count(entry => !entry.PublishEligible), all.Count(entry => entry.PublishEligible), all.Count(entry => entry.Missing)),
+            all.GroupBy(entry => entry.Console).Select(group => new CatalogConsole(group.Key, group.First().ConsoleName))
+                .OrderBy(console => console.Name, StringComparer.OrdinalIgnoreCase).ToArray());
     }
     public string PhysicalPath(CatalogEntry entry)
     {

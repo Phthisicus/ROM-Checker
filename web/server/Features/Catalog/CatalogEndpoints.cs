@@ -18,6 +18,12 @@ public static class CatalogEndpoints
         api.MapGet("/catalog/verifications/{id}", (string id, CatalogVerificationService service) => service.Get(id));
         api.MapGet("/catalog/{id}", (string id, CanonicalCatalog catalog) => catalog.Get(id));
         api.MapGet("/catalog/{id}/history", (string id, CanonicalCatalog catalog) => catalog.History(id));
+        api.MapGet("/catalog/{id}/copies", (string id, CanonicalCatalog catalog) =>
+        {
+            var file = catalog.Get(id);
+            return catalog.Entries().Where(entry => entry.Id == id ||
+                file.SHA256.Length == 64 && entry.SHA256.Equals(file.SHA256, StringComparison.OrdinalIgnoreCase)).ToArray();
+        });
         api.MapPost("/catalog/refresh", async (CanonicalCatalog catalog, CancellationToken token) =>
         {
             await catalog.Refresh(token, forceHash: true);

@@ -5,8 +5,9 @@ A self-hosted web workspace for verifying and organizing ROM collections, backed
 ## Web workspace
 
 - One permanent SQLite library with console groups, scoped verification, integrated findings, import provenance, and accessible file-detail drawers.
-- Separate Library, Imports, Activity, Integrations, and Settings workspaces with responsive dark/light themes.
-- Library search, console/category filters, pagination, per-file evidence, and HTML/CSV/JSON downloads.
+- Four simple destinations: Library, Add games, Activity, and Settings, with responsive dark/light themes and a collapsible desktop sidebar/mobile navigation drawer.
+- Cover-first browsing with console shelves, optional RomM artwork, attractive cover placeholders, list view, saved views, sorting, and a filter drawer.
+- Bookmarkable library filters, sort, pages and file details, with browser Back/Forward support; detailed evidence and expert tools are revealed by one persistent Advanced mode switch.
 - Independent authenticity, integrity, antivirus, and malware findings. No detections never means guaranteed safe.
 - Check-only scanning, sort-only inventory, archive unpacking, and unpack-then-check workflows.
 - Draft per-file review decisions: keep, mark original, or quarantine. Rebuild the preview to incorporate decisions; security warnings cannot be overridden through the web interface.
@@ -21,7 +22,13 @@ This is a **single-administrator application**, not a multi-tenant upload servic
 
 ## One library, independent background work
 
-**Library** is the permanent browsing surface. Uploading another folder, copying from SMB, or receiving a game from RomM adds an import session to the same catalog. **Imports** retains resumable transfers and their source history. **Activity** contains processing operations, queues, errors, and recovery tools; starting work does not replace the library screen. **Integrations** owns RomM connection settings, mappings, and synchronization history. **Settings** owns verification and storage defaults.
+**Library** is the permanent browsing surface. Uploading another folder, copying from SMB, or receiving a game from RomM adds an import session to the same catalog. **Add games** retains resumable transfers and their source history. **Activity** contains processing operations, queues, errors, and retry controls; library verification stays in the library while work runs. **Settings > Connections** owns RomM configuration, platform mappings, and synchronization history. **Settings** owns verification and storage defaults.
+
+The sidebar's **Advanced mode** switch reveals Server tools, Detailed results, Move previews, Recovery, raw evidence, engine logs, individual per-run checks, and detailed server settings. It is a presentation preference stored in this browser, not a permission boundary: switching it off never disables checks, changes saved policy, dismisses errors, or removes publication safeguards. Online-service consent and publication previews remain explicit in normal mode. Originals remain protected.
+
+The Library opens in a cover grid, even without artwork. Open a console, search or use **Filters**, then select specific files; the contextual action bar can check or preview publication for that selection. **Selection > Select all filtered** includes every matching page, while **More actions > Check entire library** ignores the current filters. Titles are descriptive: actions always target explicit catalog file IDs. Game details retain separate reference, integrity, security and organization findings, publication blocks, and exact SHA-256 copies with independent eligibility. Variants are not merged by filename.
+
+Navigation uses hash URLs such as `/roms/#/library?console=NES&sort=name&page=2` and `/roms/#/settings/connections`, so bookmarked views work behind the configured reverse-proxy subpath without additional server rewrite rules. Filters, sorting, page and open file are preserved in the URL, with browser Back/Forward support. Search edits replace the current URL rather than creating one history entry per keystroke. Returning from another screen restores the Library view; cover/list mode, cover size, sort preference, theme, Advanced mode and named saved views are local browser preferences. Sharing a URL does not grant access or bypass sign-in.
 
 Existing managed collection manifests are migrated idempotently into SQLite without relocating or deleting originals or recovery journals. Stable entries retain their import and engine identifiers across normal organization. Reference identity, completed checks, integrity, security, organization, and remote synchronization are separate states. Exact duplicate fingerprints are reported without merging different variants or automatically deleting either copy. A changed file invalidates its old publication eligibility and approval.
 
@@ -35,7 +42,7 @@ Manual review approvals require an explanation and are bound to the exact SHA-25
 
 ROM Checker owns managed file identity, verification, approvals, and publication eligibility. RomM supplies descriptive metadata and a browsing/playback library. Metadata linking requires exact hash and platform evidence, never title-only matching. Imported metadata is separate from local verification findings.
 
-Configure a RomM base URL and a dedicated API token under **Integrations**, test the connection, and map each local console to the actual RomM platform ID and filesystem slug. The connection test reads the installed OpenAPI schema and platform list; publishing requires the exact-hash API and token-authenticated scan task API. Older RomM releases may need upgrading. Credentials are protected using the application's persisted Data Protection keys and are never returned by the settings API. Use HTTPS for a non-local network; redirects are deliberately not followed and credentials are not reused when changing servers without supplying a token.
+Configure a RomM base URL and a dedicated API token under **Settings > Connections**, test the connection, and map each local console to the actual RomM platform ID and filesystem slug. The connection test reads the installed OpenAPI schema and platform list; publishing requires the exact-hash API and token-authenticated scan task API. Older RomM releases may need upgrading. Credentials are protected using the application's persisted Data Protection keys and are never returned by the settings API. Use HTTPS for a non-local network; redirects are deliberately not followed and credentials are not reused when changing servers without supplying a token.
 
 ### Publication transport and Docker mounts
 
@@ -86,7 +93,7 @@ Deleting processed recovery archives is **permanent**, disables extraction undo 
 
 ## Bulk imports and temporary ROM storage
 
-Open **Imports**. Use **Upload ROMs / Choose folder** to create a named import session, or open **Import from network share**, create an empty destination import, and connect to an approved server. Backend APIs retain the term `batch` for compatibility. The detailed batch-processing controls below are retained for import inspection and advanced recovery; every import contributes to the same permanent library.
+Open **Add games**. Use **Upload ROMs / Choose folder** to create a named import session, or open **Import from network share**, create an empty destination import, and connect to an approved server. Backend APIs retain the term `batch` for compatibility. The detailed batch-processing controls below are retained for import inspection and advanced recovery; every import contributes to the same permanent library.
 
 1. **Upload / resume folder:** choose a folder in a Chromium-based browser (Chrome/Edge). Relative folders are retained. Files upload sequentially in chunks of at most **8 MiB**; ROM contents are never buffered as one huge request or ZIP. Progress reports file counts and bytes, and Pause aborts the current request. Reselect the same unchanged folder in the same batch to resume after interruptions/reloads; the server checks relative path, size, and modification time. These identity checks are not a full client-side content hash. Changed files require a new batch. A bounded retry policy handles transient failures; permanent failures stop and are displayed.
 2. **SMB:** connect using server, share, optional domain, username, and password. The server must be explicitly listed in `ROMCHECKER_SMB_HOSTS`. Browse folders, select files/folders or all visible items, and import into an **empty** batch. Up to 1000 selected roots can expand recursively, within the batch limits. Imports are copied read-only from SMB; they never delete, rename, or write to the source share. Progress reflects completed imported files; failures retain completed originals and identify the failed batch.

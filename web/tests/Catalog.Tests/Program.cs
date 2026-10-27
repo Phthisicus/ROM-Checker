@@ -241,10 +241,33 @@ try
             Assert(page!.Size == 100 && page.Ids.Length == catalog.Entries().Length, "Catalog API exposes all filtered IDs independently of pagination.");
             var filtered = await client.GetFromJsonAsync<CatalogPage>("/api/catalog?q=Selected&size=1&checks=checked", Json.Options, timeout.Token);
             Assert(filtered!.Items.Length == 1 && filtered.Ids.Length == 2, "Catalog API applies scope filters before pagination.");
+            var sorted = await client.GetFromJsonAsync<CatalogPage>("/api/catalog?sort=name-desc&size=1", Json.Options, timeout.Token);
+            var ordered = catalog.Entries().OrderByDescending(entry => entry.FileName, StringComparer.OrdinalIgnoreCase)
+                .ThenBy(entry => entry.Id, StringComparer.Ordinal).ToArray();
+            Assert(sorted!.Items[0].Id == ordered[0].Id && sorted.Ids.SequenceEqual(ordered.Select(entry => entry.Id)),
+                "Sorting applies before pagination and all-filtered IDs retain the same stable order.");
+            var duplicatePage = await client.GetFromJsonAsync<CatalogPage>("/api/catalog?duplicates=true", Json.Options, timeout.Token);
+            var entries = catalog.Entries();
+            var duplicateIds = entries.Where(entry => entry.SHA256.Length == 64 &&
+                entries.Count(other => other.SHA256 == entry.SHA256) > 1).Select(entry => entry.Id).ToHashSet();
+            Assert(duplicateIds.Count >= 4 && duplicateIds.SetEquals(duplicatePage!.Ids),
+                "Exact-copy filtering includes every owner and copy, never title similarity.");
+            var uniquePage = await client.GetFromJsonAsync<CatalogPage>("/api/catalog?duplicates=false", Json.Options, timeout.Token);
+            Assert(!uniquePage!.Ids.Any(duplicateIds.Contains), "No-copies filter excludes both owners and copies.");
+            var copies = await client.GetFromJsonAsync<CatalogEntry[]>($"/api/catalog/{selectedIds[0]}/copies", Json.Options, timeout.Token);
+            Assert(copies!.Any(entry => entry.Id == selectedIds[0]) &&
+                copies!.All(entry => entry.SHA256 == catalog.Get(selectedIds[0]).SHA256),
+                "Copies endpoint retains independent per-file evidence and returns only exact content.");
+            Assert(copies!.Any(entry => entry.CheckStatus == "checked") && copies!.Any(entry => entry.CheckStatus == "unchecked"),
+                "Exact copies preserve their separate checked and unchecked states.");
+            await Reject(() => Task.Run(() => catalog.List(new(Sort: "invalid"))),
+                "Invalid sort is rejected by the catalog rather than silently defaulted.");
             catalog.UpdateSync(selectedIds[0], "awaiting-scan", "Queued for external scan.");
             var syncFiltered = await client.GetFromJsonAsync<CatalogPage>("/api/catalog?syncStatus=awaiting-scan&size=1", Json.Options, timeout.Token);
             Assert(syncFiltered!.Filtered == 1 && syncFiltered.Ids.SequenceEqual([selectedIds[0]]) &&
                 syncFiltered.Groups.Sum(group => group.Total) == 1, "Sync-state filtering applies to items, groups, and all-filtered IDs.");
+            Assert(syncFiltered!.Consoles!.Length == entries.Select(entry => entry.Console).Distinct().Count(),
+                "Console choices remain global even when result groups are filtered.");
             var history = await client.GetFromJsonAsync<CatalogHistory[]>($"/api/catalog/{stableId}/history", Json.Options, timeout.Token);
             Assert(history!.Any(item => item.Action == "manual-approved"), "Audit history endpoint preserves previous approvals.");
         }

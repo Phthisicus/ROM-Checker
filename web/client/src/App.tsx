@@ -3,7 +3,7 @@ import {
   Check, CheckCircle2,
   ChevronRight,
   Gamepad2, HardDrive, History, LayoutDashboard, ListFilter, Link2,
-  LoaderCircle, LogOut, Moon, Play,
+  LoaderCircle, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Play,
   Settings2, Shield, ShieldAlert, Sun,
   Trash2,
   X
@@ -30,7 +30,9 @@ import StorageView from './features/storage/StorageView'
 import CollectionsView from './features/storage/CollectionsView'
 import CatalogView from './features/library/CatalogView'
 import RommView from './features/integrations/RommView'
-import type { Confirmation, Tab } from './workspace'
+import type { Confirmation } from './workspace'
+import { navigate, useRoute } from './navigation'
+import './redesign.css'
 
 const tabs = [
   { name: 'Overview', icon: LayoutDashboard }, { name: 'ExpertLibrary', icon: Gamepad2 },
@@ -40,8 +42,11 @@ const tabs = [
 ] as const
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
-  const [tab, setTab] = useState<Tab>('Library')
-  const [expert, setExpert] = useState(() => localStorage.getItem('romchecker-expert') === 'true')
+  const { tab } = useRoute()
+  const setTab = navigate
+  const [expert, setExpert] = useState(() => localStorage.getItem('romchecker-advanced') === 'true')
+  const [menuOpen, setMenuOpen] = useState(false)
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem('romchecker-sidebar') === 'collapsed')
   const [legacyStorage, setLegacyStorage] = useState(false)
   const [info, setInfo] = useState<Info>()
   const [jobs, setJobs] = useState<Job[]>([])
@@ -59,6 +64,39 @@ export default function App() {
   const [dark, setDark] = useState(() => localStorage.getItem('romchecker-theme') !== 'light')
   const watchedJob = useRef<string | null>(null)
   const active = jobs.find(busy)
+  const toolTab = ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab)
+  useEffect(() => { setMenuOpen(false) }, [tab])
+  useEffect(() => {
+    document.title = `ROM Checker | ${tab === 'Storage' ? 'Add games' : tab === 'Jobs' ? 'Activity' : tab === 'Integrations' ? 'Connections' : tab}`
+    if (authenticated) document.getElementById('main-content')?.focus()
+  }, [tab, authenticated])
+  useEffect(() => {
+    if (!menuOpen) return
+    const navigation = document.getElementById('workspace-navigation')
+    const focusable = () => Array.from(navigation?.querySelectorAll<HTMLElement>('a, button') ?? []).filter(element => element.getClientRects().length > 0)
+    focusable()[0]?.focus()
+    function keydown(event: KeyboardEvent) {
+      if (event.key === 'Escape') setMenuOpen(false)
+      if (event.key !== 'Tab') return
+      const elements = focusable()
+      if (event.shiftKey && document.activeElement === elements[0]) { event.preventDefault(); elements.at(-1)?.focus() }
+      else if (!event.shiftKey && document.activeElement === elements.at(-1)) { event.preventDefault(); elements[0]?.focus() }
+    }
+    function resize() { if (window.innerWidth > 900) setMenuOpen(false) }
+    document.addEventListener('keydown', keydown)
+    window.addEventListener('resize', resize)
+    return () => {
+      document.removeEventListener('keydown', keydown); window.removeEventListener('resize', resize)
+      const opener = document.querySelector<HTMLButtonElement>('.mobile-menu')
+      if (opener?.getClientRects().length) opener.focus()
+    }
+  }, [menuOpen])
+  useEffect(() => { if (!expert && toolTab) setTab('Library') }, [expert, toolTab])
+  function toggleAdvanced() {
+    const value = !expert
+    setExpert(value); localStorage.setItem('romchecker-advanced', String(value))
+    if (!value) { setLegacyStorage(false); if (toolTab) setTab('Library') }
+  }
   useEffect(() => { sessionStorage.setItem('romchecker-collection', batchId) }, [batchId])
   const historyJob = jobs.find(j => j.action === 'history' && completed(j) && (j.request.batchId ?? '') === batchId)
   const cleanupJob = jobs.find(j => j.action === 'cleanup-preview' && completed(j) && (j.request.batchId ?? '') === batchId)
@@ -117,7 +155,7 @@ export default function App() {
     }
     if (completed(job) && ['scan', 'inventory', 'workflow', 'plan', 'apply'].includes(job.action)) {
       setResultId(job.id); setPage(1); setReviews([])
-      setTab(job.action === 'plan' ? 'Changes' : 'ExpertLibrary')
+      if (expert && (tab === 'Jobs' || toolTab)) setTab(job.action === 'plan' ? 'Changes' : 'ExpertLibrary')
     }
     if (completed(job)) setNotice(`${actions[job.action]} finished${job.status === 'completed-with-warnings' ? ' with warnings. Review the job log.' : '.'}`)
     else if (job.error) setError(job.error)
@@ -126,13 +164,13 @@ export default function App() {
     if (!jobId || tab !== 'Jobs') return
     let alive = true
     const update = () => Promise.all([api<Detail>(`/jobs/${jobId}`),
-      fetch(url(`/jobs/${jobId}/log`), { credentials: 'same-origin' }).then(async response => {
+      expert ? fetch(url(`/jobs/${jobId}/log`), { credentials: 'same-origin' }).then(async response => {
         if (!response.ok) throw new Error(`Could not load log (${response.status}).`)
         return response.text()
-      })]).then(([data, output]) => { if (alive) { setDetail(data); setLog(output) } }).catch(fail)
+      }) : Promise.resolve('')]).then(([data, output]) => { if (alive) { setDetail(data); setLog(output) } }).catch(fail)
     update(); const timer = setInterval(update, 2000)
     return () => { alive = false; clearInterval(timer) }
-  }, [jobId, tab, fail])
+  }, [jobId, tab, expert, fail])
   useEffect(() => {
     let alive = true
     setJournals([])
@@ -160,36 +198,42 @@ export default function App() {
   function confirm(value: Confirmation) { setError(''); setConfirmation(value) }
   if (authenticated === null) return <div className="boot"><LoaderCircle className="spin" />Connecting to ROM Checker...</div>
   if (!authenticated) return <Login onLogin={() => { setAuthenticated(true); setError('') }} />
-  return <div className="app-shell">
-    <a className="skip-link" href="#main-content">Skip to content</a>
-    <aside className="sidebar"><a className="brand" href="#library" onClick={() => setTab('Library')}><span className="logo-mark"><Gamepad2 size={24} /></span><span>ROM<span className="brand-light">CHECKER</span><small>ONE LIBRARY. YOUR STORAGE.</small></span></a>
-      <span className="nav-label">WORKSPACE</span><nav aria-label="Main navigation">{[...['Library', 'Storage', 'Jobs', 'Integrations', 'Settings'].map(name => tabs.find(item => item.name === name)!), ...tabs.filter(item => expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name))].map(({ name, icon: Icon }) => {
-        const title = ({ Storage: 'Imports', Jobs: 'Activity', Recovery: 'Undo changes', Overview: 'Server tools', Library: 'Library', ExpertLibrary: 'Detailed results', Changes: 'Move previews', Settings: 'Settings', Integrations: 'Integrations' })[name]
-        return <button key={name} aria-label={title} title={title} className={tab === name ? 'nav-item selected' : 'nav-item'} aria-current={tab === name ? 'page' : undefined} onClick={() => { setTab(name); setLegacyStorage(false) }}><Icon size={19} /><span>{title}</span>{name === 'Jobs' && active && <span className="live-dot" />}</button>
+  const title = ({ Library: 'Library', Storage: 'Add games', Jobs: 'Activity', Settings: 'Settings', Integrations: 'Connections', Overview: 'Server tools', ExpertLibrary: 'Detailed results', Changes: 'Move previews', Recovery: 'Recovery' })[tab]
+  return <div className={`app-shell redesigned ${collapsed ? 'sidebar-collapsed' : ''} ${menuOpen ? 'menu-open' : ''}`}>
+    <a className="skip-link" href="#main-content" onClick={event => { event.preventDefault(); document.getElementById('main-content')?.focus() }}>Skip to content</a>
+    {menuOpen && <button className="navigation-scrim" aria-label="Close navigation" onClick={() => setMenuOpen(false)} />}
+    <aside className="sidebar" id="workspace-navigation"><a className="brand" aria-label="ROM Checker home" href="#/library"><span className="logo-mark"><Gamepad2 size={24} /></span><span className="brand-copy">ROM<span className="brand-light">CHECKER</span><small>Your collection, at home.</small></span></a>
+      <button className="icon-button mobile-nav-close" aria-label="Close navigation" onClick={() => setMenuOpen(false)}><X size={20} /></button>
+      <span className="nav-label">COLLECTION</span><nav aria-label="Main navigation">{tabs.filter(item => ['Library', 'Storage', 'Jobs', 'Settings'].includes(item.name)).sort((a, b) => ['Library', 'Storage', 'Jobs', 'Settings'].indexOf(a.name) - ['Library', 'Storage', 'Jobs', 'Settings'].indexOf(b.name)).map(({ name, icon: Icon }) => {
+        const label = ({ Library: 'Library', Storage: 'Add games', Jobs: 'Activity', Settings: 'Settings', Overview: '', ExpertLibrary: '', Changes: '', Recovery: '', Integrations: '' })[name]
+        const selected = tab === name || name === 'Settings' && tab === 'Integrations'
+        return <button key={name} aria-label={label} title={label} className={selected ? 'nav-item selected' : 'nav-item'} aria-current={selected ? 'page' : undefined} onClick={() => { setTab(name); setLegacyStorage(false) }}><Icon size={20} /><span>{label}</span>{name === 'Jobs' && active && <span className="live-dot" />}</button>
       })}</nav>
-      <button className="nav-item" aria-label={`Expert workspace ${expert ? 'on' : 'off'}`} title={`Expert workspace ${expert ? 'on' : 'off'}`} aria-pressed={expert} onClick={() => { const value = !expert; setExpert(value); localStorage.setItem('romchecker-expert', String(value)); if (!value) { setLegacyStorage(false); setTab('Library') } }}><Settings2 size={18} /><span>Expert workspace {expert ? 'on' : 'off'}</span></button>
-      <div className="sidebar-bottom"><div className="storage-label"><HardDrive size={18} /><strong>Your storage. Your files.</strong></div><p>Self-hosted folder & SMB imports.<br />Online checks use hashes and metadata.</p>
+      {expert && <><span className="nav-label tools-label">TOOLS</span><nav aria-label="Advanced tools">{tabs.filter(item => ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name)).map(({ name, icon: Icon }) => <button key={name} aria-label={name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'} title={name} className={`nav-item ${tab === name ? 'selected' : ''}`} onClick={() => setTab(name)}><Icon size={19} /><span>{name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'}</span></button>)}</nav></>}
+      <div className="sidebar-bottom"><button className="advanced-switch" role="switch" aria-label="Advanced mode" aria-checked={expert} title="Advanced mode" onClick={toggleAdvanced}><Settings2 size={18} /><span>Advanced mode</span><i aria-hidden="true" className={expert ? 'switch-track on' : 'switch-track'} /></button>
+        <button className="collapse-navigation icon-button" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => { setCollapsed(!collapsed); localStorage.setItem('romchecker-sidebar', collapsed ? 'expanded' : 'collapsed') }}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}<span>Collapse sidebar</span></button>
         <div className="row spread"><span className="version" data-frontend-version={__APP_VERSION__}>v{info?.version ?? '...'}{info?.buildNumber ? ` · Build ${info.buildNumber}` : ''}</span></div></div>
     </aside>
-    <div className="main-shell"><header className="topbar"><div className="breadcrumb">Workspace <ChevronRight size={14} /><strong>{tab === 'Storage' ? 'Imports' : tab === 'Jobs' ? 'Activity' : tab === 'Recovery' ? 'Undo changes' : tab === 'ExpertLibrary' ? 'Detailed results' : tab === 'Overview' ? 'Server tools' : tab}</strong></div>
+    <div className="main-shell" inert={menuOpen}><header className="topbar"><div className="row"><button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={menuOpen} aria-controls="workspace-navigation" onClick={() => setMenuOpen(!menuOpen)}><Menu size={22} /></button><div className="breadcrumb">Your collection <ChevronRight size={14} /><strong>{title}</strong></div></div>
       <div className="row"><span className="server-status"><span className="live-dot" />Self-hosted</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Sign out" onClick={() => api('/logout', { method: 'POST' }).then(() => setAuthenticated(false)).catch(fail)}><LogOut size={18} /></button></div></header>
       <main id="main-content" className="content" tabIndex={-1}>
         {batchId && expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <div className="notice subtle batch-scope"><HardDrive size={18} /><span>Expert tools are scoped to the selected import. Your normal Library always includes all imports.</span><button onClick={() => { setBatchId(''); setTab('Overview') }}>Use server scope</button></div>}
         {error && <div className="notice error" role="alert"><ShieldAlert size={19} /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={17} /></button></div>}
         {notice && <div className="notice success" role="status"><CheckCircle2 size={18} /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={17} /></button></div>}
-        <div className="page-heading"><div><span className="eyebrow">YOUR LIBRARY, UNDERSTOOD</span><h1>{tab === 'Storage' ? 'Imports' : tab === 'Jobs' ? 'Activity' : tab === 'Overview' ? 'Server tools' : tab === 'Changes' ? 'Review your next move' : tab === 'Recovery' ? 'Undo changes & recovery' : tab === 'Settings' ? 'Settings' : tab === 'ExpertLibrary' ? 'Detailed results' : tab}</h1>
-          <p>{tab === 'Library' ? 'Every import, every console, one permanent home.' : tab === 'Integrations' ? 'Connect your verified library without giving up control.' : tab === 'Changes' ? 'Nothing moves until you approve a completed preview.' : tab === 'Jobs' ? 'Follow operations, worker progress, and service findings.' : tab === 'Recovery' ? 'Recover journaled changes or reclaim verified archive space.' : tab === 'Storage' ? 'Bring files into your library. Imports are source batches, not separate libraries.' : 'Configure verification, sorting, and file-handling safeguards.'}</p></div>
+        <div className="page-heading"><div><h1>{title}</h1>
+          <p>{tab === 'Library' ? 'A home for every game.' : tab === 'Integrations' ? 'Connect your collection to RomM.' : tab === 'Changes' ? 'Review before anything moves.' : tab === 'Jobs' ? 'Your checks and transfers, without the noise.' : tab === 'Recovery' ? 'Review and recover recorded changes.' : tab === 'Storage' ? 'From your files to your collection. Originals stay protected.' : 'Make this workspace yours.'}</p></div>
           {expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <button className="primary" disabled={!!active || pending} onClick={() => start('scan')}><Play size={16} />Check library</button>}
           {expert && tab === 'Storage' && <button onClick={() => setLegacyStorage(!legacyStorage)}>{legacyStorage ? 'Guided imports' : 'Advanced storage & extraction'}</button>}</div>
-        {tab === 'Overview' && <OverviewView scope={batchId ? `Storage batch ${batchId}` : undefined} info={info} summary={summary} selected={selected} jobs={jobs} active={active} progress={progress} pending={pending} start={start} confirm={confirm} setTab={setTab} setJobId={setJobId} />}
-        {tab === 'Library' && <CatalogView fail={fail} imports={() => { setBatchId(''); setTab('Storage') }} jobs={jobs} active={active} progress={progress} changed={refresh} />}
-        {tab === 'Integrations' && <RommView fail={fail} />}
-        {(tab === 'ExpertLibrary' || tab === 'Changes') && <LibraryView tab={tab === 'ExpertLibrary' ? 'Library' : 'Changes'} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
-        {tab === 'Jobs' && <><ActivitySummary jobs={jobs} fail={fail} /><JobsView expert={expert} jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} /></>}
-        {tab === 'Recovery' && <RecoveryView journals={journals} cleanup={cleanup} cleanupJob={cleanupJob} active={active} pending={pending} start={start} confirm={confirm} />}
-        {tab === 'Settings' && <SettingsView info={info} fail={fail} saved={() => setNotice('Settings saved. New jobs use these settings; existing previews keep their original configuration.')} />}
-        {tab === 'Storage' && (legacyStorage ? <StorageView batchId={batchId} select={setBatchId} start={start} active={!!active || pending} fail={fail} /> : <CollectionsView batchId={batchId} select={setBatchId} start={start} jobs={jobs} progress={progress} fail={fail} recovery={() => { setExpert(true); setTab('Recovery') }} />)}
-        <footer className="page-footer"><span>ROM CHECKER <span className="muted">/ A little more order. A lot more clarity.</span></span><span className="row"><Shield size={14} />Originals preserved. Findings explained.</span></footer>
+        {expert && tab === 'Overview' && <OverviewView scope={batchId ? `Storage batch ${batchId}` : undefined} info={info} summary={summary} selected={selected} jobs={jobs} active={active} progress={progress} pending={pending} start={start} confirm={confirm} setTab={setTab} setJobId={setJobId} />}
+        {tab === 'Library' && <CatalogView advanced={expert} activity={() => setTab('Jobs')} fail={fail} imports={() => { setBatchId(''); setTab('Storage') }} jobs={jobs} active={active} progress={progress} changed={refresh} />}
+        {(tab === 'Settings' || tab === 'Integrations') && <nav className="settings-tabs" aria-label="Settings sections"><button aria-current={tab === 'Settings' ? 'page' : undefined} onClick={() => setTab('Settings')}>Preferences & server</button><button aria-current={tab === 'Integrations' ? 'page' : undefined} onClick={() => setTab('Integrations')}><Link2 size={16} />Connections</button></nav>}
+        {tab === 'Integrations' && <RommView advanced={expert} fail={fail} />}
+        {expert && (tab === 'ExpertLibrary' || tab === 'Changes') && <LibraryView tab={tab === 'ExpertLibrary' ? 'Library' : 'Changes'} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
+        {tab === 'Jobs' && <><ActivitySummary advanced={expert} jobs={jobs} fail={fail} /><JobsView expert={expert} jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} /></>}
+        {expert && tab === 'Recovery' && <RecoveryView journals={journals} cleanup={cleanup} cleanupJob={cleanupJob} active={active} pending={pending} start={start} confirm={confirm} />}
+        {tab === 'Settings' && <SettingsView advanced={expert} info={info} fail={fail} saved={() => setNotice('Settings saved. New jobs use these settings; existing previews keep their original configuration.')} />}
+        {tab === 'Storage' && (legacyStorage ? <StorageView batchId={batchId} select={setBatchId} start={start} active={!!active || pending} fail={fail} /> : <CollectionsView advanced={expert} batchId={batchId} select={setBatchId} start={start} jobs={jobs} progress={progress} fail={fail} recovery={() => { setExpert(true); localStorage.setItem('romchecker-advanced', 'true'); setTab('Recovery') }} />)}
+        <footer className="page-footer"><span>ROM CHECKER</span><span className="row"><Shield size={14} />Originals preserved. Findings explained.</span></footer>
       </main>
     </div>
     {confirmation && <Modal title={confirmation.title} close={() => !pending && setConfirmation(undefined)}><div className={`confirmation-icon ${confirmation.dangerous ? 'danger' : ''}`}>{confirmation.dangerous ? <Trash2 size={28} /> : <Shield size={28} />}</div><p>{confirmation.message}</p>{error && <div className="notice error" role="alert">{error}</div>}<div className="dialog-actions"><button disabled={pending} onClick={() => setConfirmation(undefined)}>Cancel</button><button className={confirmation.dangerous ? 'danger-button' : 'primary'} disabled={pending} onClick={() => start(confirmation.action, { sourceId: confirmation.sourceId, journal: confirmation.journal, confirm: true })}>{pending ? <LoaderCircle size={17} className="spin" /> : <Check size={17} />}Confirm</button></div></Modal>}
