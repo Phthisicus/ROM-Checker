@@ -16,16 +16,16 @@ jobs:
     name: Publish development container
     if: github.ref_name == 'development'
     needs: checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: read
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Calculate development build identity
@@ -50,14 +50,14 @@ jobs:
               writeFileSync(path, JSON.stringify(value, null, 2) + "\n");
             }
           ' "$version"
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
       - name: Build development candidate
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -68,7 +68,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan development candidate
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ steps.identity.outputs.image }}:development-sha-${{ github.sha }}
           scanners: vuln
@@ -83,7 +83,7 @@ jobs:
         run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
       - name: Publish development image without creating a release
         id: image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -115,7 +115,7 @@ jobs:
     name: Publish checked release
     if: github.ref_name == 'beta' || github.ref_name == 'main'
     needs: checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
     permissions:
       contents: write
@@ -123,11 +123,11 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           ref: ${{ github.sha }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Read published release baselines
@@ -147,8 +147,8 @@ jobs:
         run: node .github/release-tools/release.mjs reserve .release/release-plan.json
       - name: Stamp application and frontend version for this build
         run: node .github/release-tools/release.mjs stamp .release/release-plan.json
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -173,7 +173,7 @@ jobs:
           fi
       - name: Build candidate without publishing
         if: steps.existing.outputs.found != 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -184,7 +184,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan candidate container
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
           scanners: vuln
@@ -200,7 +200,7 @@ jobs:
         run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
       - name: Publish immutable image with SBOM and provenance
         if: steps.existing.outputs.found != 'true'
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           push: true
@@ -252,7 +252,7 @@ jobs:
         run: |
           printf "## ROM Checker %s\n\nContainer: \`%s@%s\`\n\n" "$VERSION" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
           cat .release/release-notes.md >> "$GITHUB_STEP_SUMMARY"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: release-record-${{ github.run_id }}-${{ github.run_attempt }}

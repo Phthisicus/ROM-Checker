@@ -1,0 +1,5 @@
+{
+  "type": "maintenance",
+  "title": "Modernized CI action runtimes and predictable Linux runners",
+  "description": "CI and container delivery now use Node.js 24-based GitHub Actions, including the scanner's nested cache action. Linux jobs run on the explicit Ubuntu 24.04 image rather than following ubuntu-latest migrations. This removes deprecated Node.js 20 runtime warnings and avoids unexpected operating-system changes during builds."
+}

@@ -9,13 +9,13 @@ permissions:
 jobs:
   release-policy:
     name: Release policy
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
       - name: Release automation regressions
@@ -41,11 +41,11 @@ jobs:
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
   dependencies:
     name: Dependency audit
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
       - name: Audit direct and transitive NuGet packages
@@ -54,7 +54,7 @@ jobs:
           dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
           cat "$RUNNER_TEMP/nuget-audit.json"
           jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
-      - uses: aquasecurity/trivy-action@0.35.0
+      - uses: aquasecurity/trivy-action@0.36.0
         env:
           TRIVY_INCLUDE_DEV_DEPS: 'true'
         with:
@@ -66,14 +66,14 @@ jobs:
           exit-code: '1'
   application:
     name: Application and engine
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
         with:
           dotnet-version: '10.0.x'
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: '24'
           cache: npm
@@ -112,7 +112,7 @@ jobs:
         run: |
           npm run test:e2e
           npm run test:e2e:catalog
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         if: failure()
         with:
           name: browser-failure
@@ -121,18 +121,18 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Windows PowerShell compatibility
         shell: powershell
         run: .\RomSorter.Tests.ps1
   container:
     name: Container smoke test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
         with:
           context: .
           load: true
@@ -140,7 +140,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Container vulnerability gate
-        uses: aquasecurity/trivy-action@0.35.0
+        uses: aquasecurity/trivy-action@0.36.0
         with:
           image-ref: romchecker:test
           scanners: vuln
@@ -179,7 +179,7 @@ jobs:
     name: Required checks
     if: always()
     needs: [release-policy, dependencies, application, windows-engine, container]
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
       - name: Require every quality gate

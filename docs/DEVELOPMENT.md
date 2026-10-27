@@ -16,6 +16,8 @@ The pipeline intentionally does not switch your repository's default branch or c
 
 ## Required CI
 
+Linux jobs are pinned to `ubuntu-24.04` to avoid automatic `ubuntu-latest` operating-system migrations. JavaScript actions use Node.js 24 runtimes; Trivy's composite action also uses a Node.js 24 cache action. These hosted workflows require a sufficiently recent GitHub Actions runner for Node.js 24; review runner requirements before moving them to self-hosted infrastructure.
+
 The `Required checks` job fails unless every gate succeeds:
 
 - Promotion/title policy, release-note validation, release automation regression tests, and workflow linting.
