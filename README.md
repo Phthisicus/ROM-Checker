@@ -1,6 +1,46 @@
+![ROM Checker - Verify. Protect. Preserve.](assets/brands/banner.webp)
+
 # ROM Checker
 
-A self-hosted web workspace for verifying and organizing ROM collections, backed by the original ROM Sorter PowerShell engine.
+**Verify. Protect. Preserve.**
+
+[![CI and delivery](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml/badge.svg?branch=development)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml)
+![Deployment: self-hosted](https://img.shields.io/badge/deployment-self--hosted-91d900)
+![Container platform: Linux amd64](https://img.shields.io/badge/container-Linux%20amd64-555555)
+
+## Introduction
+
+ROM Checker is a self-hosted ROM verification and security platform. It helps you validate ROM integrity, review security findings, and organize gaming collections while keeping your library on infrastructure you control.
+
+## Key features
+
+- Verify file identity, integrity, local antivirus results, online malware indicators, and organization eligibility as separate findings.
+- Browse a permanent library with console grouping, filters, saved views, file details, and import history.
+- Upload folders in resumable chunks or import read-only from explicitly approved SMB servers.
+- Review changes before organization; file moves are journaled and recoverable, and originals are not overwritten.
+- Run background jobs with progress, logs, cancellation for non-mutating work, and recovery tools.
+- Optionally connect RomM for metadata, artwork, imports, and explicitly approved publishing.
+- Deploy with Docker Compose as a single-administrator application.
+
+## Screenshots
+
+Screenshots of the running application are not checked into this repository yet. Product screenshots should be added only from an actual running instance and reviewed to remove private paths, library contents, and other sensitive information.
+
+## How it works
+
+ROM Checker uses the existing PowerShell ROM Sorter engine for analysis. The web application manages a single catalog, settings, and background job queue. Imports are added to that catalog; they are not separate libraries. Verification, reference identity, integrity, security, and organization are reported independently. Online lookups are optional and require user consent where applicable. A clean result is not a guarantee that a file is safe.
+
+## Quick links
+
+- [Docker Compose installation](#run-with-docker-compose)
+- [Configuration reference](#configuration)
+- [RomM integration](#romm-integration)
+- [Security and privacy](#security-and-privacy)
+- [Development and release guide](docs/DEVELOPMENT.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Repository setup recommendations](.github/REPOSITORY_SETUP.md)
 
 ## Web workspace
 
@@ -298,3 +338,54 @@ See **[Development and release guide](docs/DEVELOPMENT.md)** for release-note ex
 ## Original command-line application
 
 The original `RomSorter.ps1`, its regression suite, and Ubuntu/WSL launcher remain available. Run `powershell -File .\RomSorter.ps1` on Windows or `bash RomSorter.sh` on Ubuntu. The web bridge loads engine definitions without starting CLI menus, executes each job in a separate process, and preserves engine safety checks instead of reimplementing ROM analysis in the browser.
+
+## Integrations
+
+- **Local antivirus:** Docker uses ClamAV; Windows runs use Windows Defender where available.
+- **Online malware lookups:** VirusTotal and MalwareBazaar are optional and configured with server-side API keys.
+- **Reference and metadata checks:** custom DAT files, libretro reference data, and Hasheous checks are supported by the verification engine.
+- **RomM:** optional metadata, artwork, import, and explicit publishing workflows are available under Settings > Connections. Publishing uses a shared export library and RomM's API; it is not a direct ROM upload.
+
+## Security and privacy
+
+- ROM Checker is a **single-administrator application**, not a multi-tenant service. Do not expose it as a public upload service.
+- Online verification services receive hashes and metadata, not ROM contents. RomM publishing is an explicit exception: eligible ROM copies are exported to the RomM instance you configure.
+- The Compose setup binds the application to loopback by default. If using a reverse proxy, configure only its exact trusted source IP and keep the internal storage service private.
+- Keep passwords, API keys, storage tokens, database files, and backups protected. Back up the library, application data, and storage before upgrades or destructive cleanup.
+- Antivirus and reference checks provide evidence, not a safety guarantee. Incomplete protection is reported rather than treated as a clean scan.
+
+See [SECURITY.md](SECURITY.md) for reporting instructions and [Configuration](#configuration) for deployment details.
+
+## Roadmap
+
+There is no committed feature roadmap or delivery timeline in the repository. Use GitHub Issues to propose and discuss work; releases describe completed changes. Current documented deployment boundaries include Linux amd64 container images, a single application worker, and no automatic deployment to a running host.
+
+## FAQ
+
+### Does ROM Checker upload my ROM files to online verification services?
+
+Optional external verification lookups send hashes and metadata, not ROM contents. Importing files into your self-hosted instance stores them on its configured storage. If you explicitly configure RomM publishing, eligible copies are exported to the shared library used by that RomM instance.
+
+### Does a clean scan prove that a ROM is safe?
+
+No. Authenticity, integrity, antivirus completion, and malware indicators are separate evidence. “No detections” does not guarantee that a file is safe.
+
+### Does ROM Checker automatically move or delete files?
+
+No import automatically publishes or organizes files. **Verify & organize** is an explicit action; Expert workspace changes require preview and confirmation. Cleanup of processed archives is permanent and requires a fresh verified preview.
+
+### Is this a multi-user service?
+
+No. The web application is designed for one administrator and one canonical library.
+
+### Which license applies?
+
+The repository currently has no project `LICENSE` file. No project license is specified here; see [License](#license) and the repository setup recommendations.
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The project uses feature branches targeting `development`, Conventional Commit titles, focused regression tests, and release-note entries for meaningful changes.
+
+## License
+
+No project license file is currently present. This repository does not specify the terms under which its code may be used, modified, or redistributed. A maintainer must select and add a project license before the repository can communicate an open-source license.
