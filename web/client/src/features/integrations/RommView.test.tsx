@@ -4,6 +4,42 @@ import RommView, { PublishDialog } from './RommView'
 import { defaultPublishRules } from './RommPublishRules'
 
 describe('RomM integration', () => {
+  it('tracks unsaved settings and warns on reload until a successful save', async () => {
+    let rejectSave = true
+    let config = { url: 'http://fixture:8080', configured: true, platformMappings: [], autoPublish: false }
+    const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
+      if (path === '/api/romm/config' && init?.method === 'PUT') {
+        if (rejectSave) return Response.json({ error: 'Connection unavailable' }, { status: 503 })
+        config = { ...config, ...JSON.parse(init.body as string) }
+        return new Response(null, { status: 204 })
+      }
+      if (path === '/api/romm/config') return Response.json(config)
+      return Response.json([])
+    })
+    const fail = vi.fn()
+    vi.stubGlobal('fetch', fetcher)
+    render(<RommView fail={fail} />)
+    await screen.findByText(/All settings saved/)
+    expect(screen.getAllByRole('button', { name: 'Save RomM settings' })).toHaveLength(1)
+    fireEvent.change(screen.getByLabelText('API token'), { target: { value: 'new-token' } })
+    expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument()
+    const beforeSave = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(beforeSave)
+    expect(beforeSave.defaultPrevented).toBe(true)
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
+    await waitFor(() => expect(fail).toHaveBeenCalledOnce())
+    expect(screen.getByText(/Unsaved changes/)).toBeInTheDocument()
+    expect(screen.getByLabelText('API token')).toHaveValue('new-token')
+    rejectSave = false
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
+    await screen.findByText(/RomM settings saved/)
+    expect(screen.getByText(/All settings saved/)).toBeInTheDocument()
+    expect(screen.getByLabelText('API token')).toHaveValue('')
+    const afterSave = new Event('beforeunload', { cancelable: true })
+    window.dispatchEvent(afterSave)
+    expect(afterSave.defaultPrevented).toBe(false)
+  })
+
   it('previews draft publishing rules without saving or enabling publication, then persists them explicitly', async () => {
     let config = { url: 'http://fixture:8080', configured: true, platformMappings: [{ console: 'NES', platformId: 1, slug: 'nes' }], autoPublish: false, publishRules: defaultPublishRules }
     const fetcher = vi.fn(async (path: string, init?: RequestInit) => {
@@ -29,17 +65,17 @@ describe('RomM integration', () => {
     })
     vi.stubGlobal('fetch', fetcher)
     render(<RommView fail={vi.fn()} />)
-    await screen.findByRole('option', { name: 'My verified collection' })
-    fireEvent.change(screen.getByLabelText('Reference requirement'), { target: { value: 'matched' } })
+    await screen.findByRole('radio', { name: 'Selected imports' })
+    fireEvent.click(screen.getByRole('radio', { name: 'Reference matches only (approval is not enough)' }))
     for (const [label, value] of [['Consoles', 'NES'], ['Game categories', 'Original'], ['Regions', 'Europe'], ['Imports', 'import-a']]) {
-      const select = screen.getByLabelText(label)
-      ;(within(select).getByRole('option', { name: value === 'import-a' ? 'My verified collection' : value }) as HTMLOptionElement).selected = true
-      fireEvent.change(select)
+      const group = within(screen.getByRole('group', { name: label }))
+      fireEvent.click(group.getByRole('radio', { name: `Selected ${label.toLowerCase()}` }))
+      fireEvent.click(await group.findByRole('checkbox', { name: value === 'import-a' ? 'My verified collection' : value }))
     }
     fireEvent.click(screen.getByRole('checkbox', { name: 'Allow filename-inferred regions' }))
     const rules = { ...defaultPublishRules, referenceRequirement: 'matched', consoles: ['NES'], categories: ['Original'],
       regions: ['Europe'], batchIds: ['import-a'], allowFilenameRegions: true }
-    fireEvent.click(screen.getByRole('button', { name: 'Preview matching games' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview draft publishing rules' }))
     expect(await screen.findByText(/A reference match is required\./)).toBeInTheDocument()
     expect(screen.getByText('Europe (dat-title)')).toBeInTheDocument()
     expect(screen.getByText(/26 games · 20 match rules · 17 ready/)).toBeInTheDocument()
@@ -49,9 +85,12 @@ describe('RomM integration', () => {
     expect(config.autoPublish).toBe(false)
     fireEvent.click(screen.getByRole('button', { name: 'Next preview page' }))
     await screen.findByText('Game page 2')
-    fireEvent.click(screen.getByRole('button', { name: 'Clear regions' }))
+    fireEvent.click(within(screen.getByRole('group', { name: 'Regions' })).getByRole('button', { name: 'Clear selection' }))
     expect(screen.queryByText('Game page 2')).not.toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Save publishing rules' }))
+    expect(screen.getByRole('button', { name: 'Save RomM settings' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Preview draft publishing rules' })).toBeDisabled()
+    fireEvent.click(screen.getByRole('radio', { name: 'Any regions' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
     await screen.findByText(/RomM settings saved/)
     expect(config.publishRules).toEqual({ ...rules, regions: [] })
     expect(config.autoPublish).toBe(false)
@@ -76,14 +115,14 @@ describe('RomM integration', () => {
     vi.stubGlobal('fetch', fetcher)
     render(<RommView fail={fail} />)
     expect(await screen.findByText('Import storage unavailable')).toBeInTheDocument()
-    expect(screen.getByLabelText('Imports')).toHaveValue(['removed-import'])
+    expect(screen.getByRole('checkbox', { name: 'removed-import (not currently available)' })).toBeChecked()
     optionsFailed = false
     fireEvent.click(screen.getByRole('button', { name: 'Retry rule options' }))
     await waitFor(() => expect(screen.queryByText('Import storage unavailable')).not.toBeInTheDocument())
-    fireEvent.click(screen.getByRole('button', { name: 'Preview matching games' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview draft publishing rules' }))
     expect(await screen.findByText('Invalid publishing rules')).toBeInTheDocument()
     previewFailed = false
-    fireEvent.click(screen.getByRole('button', { name: 'Preview matching games' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Preview draft publishing rules' }))
     expect(await screen.findByText(/0 games · 0 match rules/)).toBeInTheDocument()
     expect(screen.queryByText('Invalid publishing rules')).not.toBeInTheDocument()
     expect(fail).not.toHaveBeenCalled()
@@ -111,15 +150,15 @@ describe('RomM integration', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm auto-publish opt-in' }))
     expect(checkbox).toBeChecked()
     expect(fetcher.mock.calls.some(([, init]) => init?.method === 'PUT')).toBe(false)
-    fireEvent.click(screen.getByRole('button', { name: 'Save connection & mappings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
     await screen.findByText(/RomM settings saved/)
     expect(config.autoPublish).toBe(true)
     fireEvent.change(screen.getByLabelText('RomM URL'), { target: { value: 'http://fixture:8081' } })
-    fireEvent.click(screen.getByRole('button', { name: 'Save connection & mappings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
     await waitFor(() => expect(config.url).toBe('http://fixture:8081'))
     expect(config.autoPublish).toBe(true)
     fireEvent.click(checkbox)
-    fireEvent.click(screen.getByRole('button', { name: 'Save connection & mappings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
     await waitFor(() => expect(config.autoPublish).toBe(false))
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
   })
@@ -162,7 +201,7 @@ describe('RomM integration', () => {
     expect(token).toHaveValue('')
     expect(screen.getByText('/romm/library')).toBeInTheDocument()
     expect(screen.getByText(config.exportRoot)).toBeInTheDocument()
-    fireEvent.click(screen.getByRole('button', { name: 'Save connection & mappings' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Save RomM settings' }))
     await screen.findByText(/RomM settings saved/)
     const saved = fetcher.mock.calls.find(([path, init]) => path === '/api/romm/config' && init?.method === 'PUT')!
     expect(JSON.parse(saved[1]!.body as string)).not.toHaveProperty('token')
