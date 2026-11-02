@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using RomChecker.Web;
 using RomChecker.Web.Features.Catalog;
 using RomChecker.Web.Features.Library;
+using RomChecker.Web.Features.Romm;
 using RomChecker.Web.Features.Settings;
 using RomChecker.Web.Features.Storage;
 using RomChecker.Web.Infrastructure;
@@ -43,6 +44,106 @@ async Task Reject(Func<Task> action, string message)
 }
 try
 {
+    JsonElement RemoteIdentity(string hash = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", string name = "Track.bin", int platform = 1) =>
+        JsonSerializer.SerializeToElement(new { platform_id = platform, files = new[] {
+            new { id = 1, file_name = name, file_size_bytes = 12, sha1_hash = hash } } });
+    var identity = RommIdentity.Snapshot(RemoteIdentity());
+    var renamedIdentity = RommIdentity.Snapshot(RemoteIdentity(name: "Renamed.bin"));
+    Assert(identity.ContentKey == renamedIdentity.ContentKey && identity.Fingerprint != renamedIdentity.Fingerprint,
+        "Exact content deduplicates independently of filenames while path changes remain detectable conflicts.");
+    Assert(identity.ContentKey != RommIdentity.Snapshot(RemoteIdentity(platform: 2)).ContentKey,
+        "Identical file hashes on different platforms are not merged.");
+    Assert(Json.Serialize(identity).Contains("\"sha1\""), "Remote file identities use a stable sha1 JSON property.");
+    Assert(RommIdentity.ContentKey(1, [new("B", 2, "B"), new("A", 1, "A")])
+        == RommIdentity.ContentKey(1, [new("A", 1, "A"), new("B", 2, "B")]), "Whole-game content identity is independent of file order.");
+    Assert(RommIdentity.ContentKey(1, [new("A", 1, "A")]) != RommIdentity.ContentKey(1, [new("A", 1, "A"), new("B", 1, "A")]),
+        "Whole-game identity retains duplicate tracks and never merges partial games.");
+    foreach (var invalid in new[] { RemoteIdentity(hash: ""), RemoteIdentity(hash: "invalid"), RemoteIdentity(name: "../escape"), RemoteIdentity(platform: 0) })
+        await Reject(() => Task.Run(() => RommIdentity.Snapshot(invalid)), "Missing hashes, unsafe paths and invalid platforms are rejected.");
+    Assert(RommIdentity.ObservedVersion(RemoteIdentity(hash: "")).StartsWith("unindexed:", StringComparison.Ordinal)
+        && RommIdentity.ObservedVersion(JsonSerializer.SerializeToElement(new { platform_id = 1 })).StartsWith("unindexed:", StringComparison.Ordinal),
+        "Unindexed remote versions can be explicitly ignored without treating them as trusted identities.");
+    var nestedRemote = JsonSerializer.SerializeToElement(new { platform_id = 1, full_path = "roms/ps/Game",
+        files = new[] { new { id = 1, file_name = "Track.bin", file_path = "roms/ps/Game/disc1", file_size_bytes = 12,
+            sha1_hash = "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA" }, new { id = 2, file_name = "Game.cue", file_path = "roms/ps/Game",
+            file_size_bytes = 1, sha1_hash = "BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB" } } });
+    Assert(RommIdentity.Snapshot(nestedRemote).Files.Any(file => file.Path == "disc1/Track.bin"), "Nested linked-game paths survive identity snapshots.");
+    Assert(CatalogRegions.Parse("Game (USA, Europe) (En,Fr) (Rev 1)").SequenceEqual(["Europe", "USA"]),
+        "Multi-region tags normalize without treating languages and revisions as regions.");
+    Assert(CatalogRegions.Parse("Game (UJE) (UK)").SequenceEqual(["Europe", "Japan", "USA", "United Kingdom"]),
+        "Legacy region tags and country aliases normalize.");
+    Assert(CatalogRegions.Parse("Game (USA, Atlantis) (PAL) (En)").Length == 0,
+        "Unknown mixed tags, video standards and languages are not guessed as geographic regions.");
+    var policyBatch = Guid.NewGuid().ToString("N");
+    var policyEntry = new CatalogEntry
+    {
+        Id = "game", BatchId = policyBatch, FileName = "Game (USA).nes", Console = "NES", Category = "Original",
+        PublishEligible = true, CheckStatus = "checked", ReferenceStatus = "matched",
+        Evidence = JsonSerializer.SerializeToElement(new { DatMatch = "Game (Europe)", HashMatch = "Game (Japan)" })
+    };
+    var policyConfig = new RommConfig(PlatformMappings: [new("NES", 1, "nes")]);
+    var strictRules = new RommPublishRules(ReferenceRequirement: "matched", Regions: ["Europe"], Categories: ["Original"]);
+    Assert(CatalogRegions.For(policyEntry) is { Source: "dat-title", Values: ["Europe"] },
+        "Checked DAT region evidence takes precedence over online and filename regions.");
+    Assert(CatalogRegions.For(policyEntry with { CheckStatus = "stale" }) is { Source: "filename", Values: ["USA"] },
+        "Invalidated reference evidence cannot supply a trusted region.");
+    Assert(CatalogRegions.For(policyEntry with { Evidence = JsonSerializer.SerializeToElement(new { HashMatch = "Game (JP)" }) })
+        is { Source: "hash-title", Values: ["Japan"] }, "Hash-match titles provide source-labelled region evidence.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig) is null,
+        "Legacy automatic publication remains unrestricted beyond the existing eligibility policy.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig with { PublishRules = strictRules }) is null,
+        "Strict reference, category and region filters match together.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry with { ReferenceStatus = "unmatched" }],
+        policyConfig with { PublishRules = strictRules }) is not null, "Manual eligibility does not bypass reference-only publication.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry with { PublishEligible = false, PublishBlockReason = "Unsafe" }],
+        policyConfig with { PublishRules = strictRules }) == "Unsafe", "Rules cannot bypass required checks.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig with { PublishRules = strictRules with { Regions = ["USA"] } }) is not null,
+        "Filename regions do not override reference regions.");
+    var filenameEntry = policyEntry with { Evidence = JsonSerializer.SerializeToElement(new { }), ReferenceStatus = "unmatched" };
+    var filenameRules = new RommPublishRules(Regions: ["USA"]);
+    Assert(RommPublishPolicy.BlockReason([filenameEntry], policyConfig with { PublishRules = filenameRules }) is not null,
+        "Filename-only regions are held by default.");
+    Assert(RommPublishPolicy.BlockReason([filenameEntry], policyConfig with { PublishRules = filenameRules with { AllowFilenameRegions = true } }) is null,
+        "Filename-inferred regions require explicit opt-in.");
+    var unknownEntry = filenameEntry with { FileName = "Unknown.nes" };
+    Assert(RommPublishPolicy.BlockReason([unknownEntry], policyConfig with { PublishRules = filenameRules with { AllowFilenameRegions = true } }) is not null,
+        "Unknown regions remain held when filename inference is allowed.");
+    Assert(RommPublishPolicy.BlockReason([unknownEntry], policyConfig with { PublishRules = filenameRules with { IncludeUnknownRegions = true } }) is null,
+        "Including unknown regions is an independent explicit choice.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig with { PublishRules = strictRules with { Regions = ["USA", "Europe"] } }) is null,
+        "Any selected region can match.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry with { Evidence = JsonSerializer.SerializeToElement(new { DatMatch = "Game (World)" }) }],
+        policyConfig with { PublishRules = strictRules }) is not null, "World does not silently expand to every region.");
+    foreach (var blockedRules in new[]
+    {
+        strictRules with { Consoles = ["SNES"] }, strictRules with { Categories = ["Translations"] },
+        strictRules with { BatchIds = [Guid.NewGuid().ToString("N")] }
+    })
+        Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig with { PublishRules = blockedRules }) is not null,
+            "Console, category and import restrictions are applied.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry], policyConfig with { PlatformMappings = [] }) is not null,
+        "Unmapped platforms never auto-publish.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry with { BatchId = null }], policyConfig) is not null,
+        "Automatic publishing requires managed storage.");
+    var companion = filenameEntry with { Id = "companion", Category = "Companion", FileName = "Game.cue" };
+    Assert(RommPublishPolicy.BlockReason([policyEntry, companion], policyConfig with { PublishRules = strictRules }) is null,
+        "Companions inherit primary game reference, category and region filters.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry, companion with { PublishEligible = false }], policyConfig with { PublishRules = strictRules }) is not null,
+        "An ineligible companion blocks the entire group.");
+    Assert(RommPublishPolicy.BlockReason([policyEntry, filenameEntry], policyConfig with { PublishRules = strictRules }) is not null,
+        "Every primary file in a linked game must match.");
+    Assert(RommPublishPolicy.BlockReason([companion], policyConfig) is not null,
+        "Orphan companions cannot auto-publish.");
+    var normalized = RommPublishPolicy.Validate(strictRules with { Regions = ["USA", "Europe", "USA"] });
+    Assert(normalized.Regions!.SequenceEqual(["Europe", "USA"]) && normalized.BatchIds is { Length: 0 },
+        "Saved rules normalize duplicates and absent lists.");
+    foreach (var invalid in new[]
+    {
+        strictRules with { ReferenceRequirement = "unchecked" }, strictRules with { Regions = ["Atlantis"] },
+        strictRules with { BatchIds = ["../outside"] }, strictRules with { Categories = ["Anything"] },
+        strictRules with { Consoles = [null!] }, strictRules with { Regions = new string[1001] }
+    })
+        await Reject(() => Task.Run(() => RommPublishPolicy.Validate(invalid)), "Invalid rules fail explicitly.");
     var powerShell = Environment.GetEnvironmentVariable("CATALOG_TEST_POWERSHELL") ?? "pwsh";
     var options = new WebOptions(root, data, repo, powerShell, new string('p', 20), "", TimeSpan.FromMinutes(2));
     var handler = new StorageHandler();

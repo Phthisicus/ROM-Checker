@@ -10,7 +10,15 @@ public static class BatchEndpoints
     {
         var api = app.MapGroup("/internal");
         api.MapGet("/batches", (BatchStore store) => store.All());
-        api.MapPost("/batches", (BatchRequest request, BatchStore store) => store.Create(request.Name));
+        api.MapPost("/batches", async (BatchRequest request, HttpContext context, BatchStore store) =>
+        {
+            var key = context.Request.Headers["Idempotency-Key"].ToString();
+            if (key.Length == 0) return store.Create(request.Name);
+            var gate = store.Gate(key);
+            await gate.WaitAsync(context.RequestAborted);
+            try { return store.Create(request.Name, key); }
+            finally { gate.Release(); }
+        });
         api.MapGet("/batches/{id}", (string id, BatchStore store) => store.Get(id));
         api.MapPost("/batches/{id}/uploads", async (string id, UploadRequest request, BatchStore store, StorageOptions options) =>
         {

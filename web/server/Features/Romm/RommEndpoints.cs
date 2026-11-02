@@ -8,7 +8,9 @@ public static class RommEndpoints
         {
             var config = store.Config();
             return new { config.Url, configured = config.Token.Length > 0, platformMappings = config.PlatformMappings ?? [],
-                config.AutoPublish, service.ExportRoot, transport = "shared-library" };
+                config.AutoPublish, publishRules = RommPublishPolicy.Validate(config.PublishRules ?? new()),
+                sync = RommService.ValidateSync(config.Sync ?? new(), config.PlatformMappings ?? []),
+                service.ExportRoot, transport = "shared-library" };
         });
         api.MapPut("/romm/config", async (RommConfig request, RommService service) =>
         {
@@ -63,9 +65,29 @@ public static class RommEndpoints
         });
         api.MapGet("/romm/jobs", (RommStore store) => store.Jobs().Take(200));
         api.MapPost("/romm/preview", (RommSelection request, RommService service) => service.Preview(request.Ids));
+        api.MapGet("/romm/publish-options", async (Catalog.CanonicalCatalog catalog, Storage.StorageClient storage, CancellationToken token) =>
+        {
+            var batches = storage.Enabled ? await storage.Get<Storage.Batch[]>("batches", token) : [];
+            return new
+            {
+                regions = Catalog.CatalogRegions.Names, categories = RommPublishPolicy.Categories,
+                consoles = catalog.Entries().Select(entry => entry.Console).Where(value => value is not ("" or "-")).Distinct().Order().ToArray(),
+                imports = batches.Select(batch => new { batch.Id, batch.Name })
+            };
+        });
+        api.MapPost("/romm/auto-publish/preview", (RommRulePreviewRequest request, RommService service) => service.PreviewAutomatic(request));
         api.MapPost("/romm/publish", (RommSelection request, RommService service) => service.Queue("publish", request.Ids, request.Confirm));
         api.MapPost("/romm/metadata", (RommSelection request, RommService service) => service.Queue("metadata", request.Ids, request.Confirm));
-        api.MapPost("/romm/import", (RommImport request, RommService service) => service.QueueImport(request.RomIds, request.Confirm));
+        api.MapPost("/romm/import", (RommImport request, RommService service, CancellationToken token) =>
+            service.QueueImport(request.RomIds, request.Confirm, request.ImportChanged, token: token));
+        api.MapPost("/romm/sync", (RommSelection request, RommService service) => service.QueueSync(request.Confirm));
+        api.MapGet("/romm/conflicts", (RommStore store) => store.Remotes(store.Config().ConnectionId)
+            .Where(state => state.Status is "conflict" or "ignored"));
+        api.MapPost("/romm/conflicts/{id:int}", async (int id, RommConflictAction request, RommService service, CancellationToken token) =>
+        {
+            await service.ResolveConflict(id, request, token);
+            return Results.NoContent();
+        });
         api.MapPost("/romm/jobs/{id}/retry", (string id, RommService service) => service.Retry(id));
         api.MapGet("/romm/roms", async (string? q, int? page, RommStore store, RommClient client, CancellationToken token) =>
         {

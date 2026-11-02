@@ -6,7 +6,7 @@ using RomChecker.Web.Features.Storage;
 
 namespace RomChecker.Web.Features.Romm;
 
-public sealed class RommService(RommStore store, RommClient client, CanonicalCatalog catalog,
+public sealed partial class RommService(RommStore store, RommClient client, CanonicalCatalog catalog,
     StorageClient storage, WebOptions options, JobService engineJobs, Store engineStore, ILogger<RommService> logger) : BackgroundService
 {
     private readonly SemaphoreSlim submissions = new(1, 1);
@@ -25,6 +25,8 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         try
         {
             var old = store.Config();
+            var rules = RommPublishPolicy.Validate(request.PublishRules ?? old.PublishRules ?? new());
+            var sync = ValidateSync(request.Sync ?? old.Sync ?? new(), request.PlatformMappings ?? []);
             var uri = RommClient.ValidateUrl(request.Url);
             var mappings = request.PlatformMappings ?? [];
             if (mappings.Length > 1000 || mappings.Any(mapping => string.IsNullOrWhiteSpace(mapping.Console) || mapping.PlatformId < 1
@@ -41,7 +43,8 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
             if ((changed || token != old.Token) && store.Jobs().Any(job => job.Status is "queued" or "running" or "awaiting-scan" or "awaiting-import"))
                 throw new RequestException("Finish pending synchronization jobs before changing the connection. Automatic publishing can still be disabled.", 409);
             store.Save(request with { Url = uri.AbsoluteUri, Token = token,
-                PlatformMappings = mappings, ConnectionId = changed || old.ConnectionId == "" ? Guid.NewGuid().ToString("N") : old.ConnectionId });
+                PlatformMappings = mappings, PublishRules = rules, Sync = sync,
+                ConnectionId = changed || old.ConnectionId == "" ? Guid.NewGuid().ToString("N") : old.ConnectionId });
             if (changed)
                 foreach (var link in store.Links().Where(link => link.ConnectionId == old.ConnectionId))
                     catalog.UpdateSync(link.EntryId, "not-published", "RomM connection or platform mappings changed; previous exports were not deleted.");
@@ -65,6 +68,100 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
     }
     private static string GroupKey(CatalogEntry entry) => entry.BatchId + ":" +
         (RommClient.Text(entry.Evidence, "GroupId") is { Length: > 0 } group ? group : entry.Id);
+    public RommRulePreview PreviewAutomatic(RommRulePreviewRequest request)
+    {
+        if (request.Page < 1 || request.Size is < 1 or > 200)
+            throw new RequestException("Page must be positive; preview size must be 1-200.");
+        var config = store.Config();
+        config = config with { PublishRules = RommPublishPolicy.Validate(request.Rules ?? config.PublishRules ?? new()) };
+        var groups = AutomaticGroups(config, catalog.Entries());
+        return new(groups.Length, groups.Count(group => group.Status != "excluded"),
+            groups.Count(group => group.Status == "ready"), groups.Count(group => group.Status == "excluded"),
+            groups.Count(group => group.Status == "pending"), groups.Count(group => group.Status == "linked"),
+            groups.Count(group => group.Status == "failed"), request.Page, request.Size,
+            groups.Skip((int)Math.Min((long)(request.Page - 1) * request.Size, int.MaxValue)).Take(request.Size).ToArray());
+    }
+    private RommRuleGroup[] AutomaticGroups(RommConfig config, CatalogEntry[] catalogEntries)
+    {
+        var jobs = store.Jobs();
+        var pending = jobs.Where(job => job.Status is "queued" or "running" or "awaiting-scan" or "awaiting-import")
+            .SelectMany(job => job.Items).Select(item => item.EntryId).ToHashSet();
+        var failed = jobs.Where(job => job.Automatic && job.ConnectionId == config.ConnectionId
+            && job.Status is "failed" or "completed-with-errors")
+            .SelectMany(job => job.Items.Where(item => item.Status != "linked"))
+            .Select(item => (item.EntryId, item.Fingerprint)).ToHashSet();
+        var links = store.Links().Where(link => link.ConnectionId == config.ConnectionId && link.Status == "linked")
+            .ToDictionary(link => link.EntryId);
+        var conflicts = store.Links().Where(link => link.ConnectionId == config.ConnectionId && link.Status == "conflict")
+            .Select(link => link.EntryId).ToHashSet();
+        conflicts.UnionWith(store.Remotes(config.ConnectionId).Where(state => state.Status is "conflict" or "ignored")
+            .SelectMany(state => state.EntryIds));
+        return catalogEntries.GroupBy(GroupKey).Select(group =>
+        {
+            var entries = group.ToArray();
+            var reason = RommPublishPolicy.BlockReason(entries, config);
+            if (entries.Any(entry => conflicts.Contains(entry.Id))) reason = "Resolve the RomM synchronization conflict before automatic publication.";
+            var status = reason is null ? "ready" : "excluded";
+            if (reason is null)
+            {
+                if (entries.Any(entry => pending.Contains(entry.Id)))
+                { status = "pending"; reason = "This game already has pending synchronization work."; }
+                else if (entries.All(entry => links.TryGetValue(entry.Id, out var link) && link.Fingerprint == entry.SHA256))
+                { status = "linked"; reason = "All files already have current RomM links."; }
+                else if (entries.Any(entry => failed.Contains((entry.Id, (string?)entry.SHA256))))
+                { status = "failed"; reason = "Previous automatic publication failed. Review activity and retry the failed job."; }
+            }
+            return new RommRuleGroup(group.Key, (entries.FirstOrDefault(entry => entry.Category != "Companion") ?? entries[0]).FileName,
+                entries.Length, entries[0].Console, entries[0].BatchId,
+                entries.Where(entry => entry.Category != "Companion").Select(CatalogRegions.For)
+                    .DistinctBy(region => region.Source + ":" + string.Join(",", region.Values)).ToArray(),
+                status, reason ?? "Matches the rules; will be queued when automatic publishing is enabled.",
+                entries.Select(entry => entry.Id).ToArray());
+        }).OrderBy(group => group.Name, StringComparer.OrdinalIgnoreCase).ThenBy(group => group.Id, StringComparer.Ordinal).ToArray();
+    }
+    private async Task QueueAutomatic()
+    {
+        await submissions.WaitAsync();
+        try
+        {
+            var config = store.Config();
+            if (!config.AutoPublish) return;
+            _ = Configured();
+            var entries = catalog.Entries().ToDictionary(entry => entry.Id);
+            var items = new List<RommItem>();
+            foreach (var group in AutomaticGroups(config, entries.Values.ToArray()).Where(group => group.Status == "ready"))
+            {
+                if (group.Files > 100000) throw new RequestException("An automatic publishing group exceeds 100000 files.");
+                if (items.Count + group.Files > 100000) break;
+                items.AddRange(group.EntryIds.Select(id => new RommItem(id, Fingerprint: entries[id].SHA256)));
+                if (items.Count >= 1000) break;
+            }
+            if (items.Count > 0)
+                store.Save(new RommJob(Guid.NewGuid().ToString("N"), "publish", "queued", DateTimeOffset.UtcNow,
+                    null, null, config.ConnectionId, items.ToArray(), Automatic: true));
+        }
+        finally { submissions.Release(); }
+    }
+    private void RequireAutomaticPolicy(RommJob job, CatalogEntry[] group)
+    {
+        if (!job.Automatic) return;
+        var current = store.Config();
+        if (!current.AutoPublish) throw new RequestException("Automatic publishing was disabled. No new export was promoted.", 409);
+        if (current.ConnectionId != job.ConnectionId) throw new RequestException("The RomM connection changed.", 409);
+        var currentGroup = catalog.Entries().Where(entry => GroupKey(entry) == GroupKey(group[0])).ToArray();
+        var currentById = currentGroup.ToDictionary(entry => entry.Id);
+        if (store.Links().Any(link => link.ConnectionId == current.ConnectionId && link.Status == "conflict" && currentById.ContainsKey(link.EntryId)))
+            throw new RequestException("Resolve the RomM synchronization conflict before automatic publication.", 409);
+        if (store.Remotes(current.ConnectionId).Any(state => state.Status is "conflict" or "ignored"
+            && state.EntryIds.Any(currentById.ContainsKey)))
+            throw new RequestException("Resolve the RomM synchronization conflict before automatic publication.", 409);
+        if (currentGroup.Length != group.Length || group.Any(entry => !currentById.ContainsKey(entry.Id)))
+            throw new RequestException("The linked game group changed. Review it and submit publication again.", 409);
+        if (group.Any(entry => currentById[entry.Id].SHA256 != entry.SHA256))
+            throw new RequestException("Game content changed during automatic publication. Recheck and submit again.", 409);
+        var reason = RommPublishPolicy.BlockReason(currentGroup, current);
+        if (reason is not null) throw new RequestException("Automatic publishing rules blocked this game: " + reason, 409);
+    }
     public object Preview(string[] ids)
     {
         var config = Configured();
@@ -119,17 +216,38 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         }
         finally { submissions.Release(); }
     }
-    public async Task<RommJob> QueueImport(int[] ids, bool confirm)
+    public async Task<RommJob> QueueImport(int[] ids, bool confirm, bool importChanged = false, bool automatic = false,
+        CancellationToken token = default)
     {
         if (!confirm || ids is null || ids.Length is 0 or > 1000 || ids.Any(id => id < 1)) throw new RequestException("Confirm between 1 and 1000 RomM imports.");
-        await submissions.WaitAsync();
+        await submissions.WaitAsync(token);
         try
         {
             var config = Configured();
-            var pending = store.Jobs().Where(job => job.Kind == "import" && job.Status is "queued" or "running" or "awaiting-import").SelectMany(job => job.Items).ToArray();
+            var history = store.Jobs().Where(job => job.ConnectionId == config.ConnectionId && job.Kind == "import").ToArray();
+            var pending = history.Where(job => job.Status is "queued" or "running" or "awaiting-import").SelectMany(job => job.Items).ToArray();
             if (ids.Any(id => pending.Any(item => item.RommId == id))) throw new RequestException("A selected RomM import is already queued.", 409);
+            var states = store.Remotes(config.ConnectionId);
+            var items = new List<RommItem>();
+            foreach (var id in ids.Distinct())
+            {
+                var previous = states.FirstOrDefault(state => state.RommId == id);
+                if (!importChanged && (previous is not null && !(automatic && previous.Snapshot is null && previous.EntryIds.Length == 0)
+                    || history.Any(job => job.Items.Any(item => item.RommId == id))))
+                    throw new RequestException("This RomM game already has synchronization history. Recheck conflicts or retry its existing import.", 409);
+                if (importChanged && previous?.Status != "conflict")
+                    throw new RequestException("Only a reviewed synchronization conflict can be imported as a separate new copy.", 409);
+                var remote = await client.Get(config, $"api/roms/{id}", token);
+                if (RommClient.Number(remote, "id") != id) throw new RequestException("RomM returned a different game ID.", 409);
+                var snapshot = RommIdentity.Snapshot(remote);
+                if (automatic) RequireInboundPolicy(config.ConnectionId, snapshot.PlatformId);
+                if (pending.Any(item => item.RemoteSnapshot?.ContentKey == snapshot.ContentKey)
+                    || items.Any(item => item.RemoteSnapshot?.ContentKey == snapshot.ContentKey))
+                    throw new RequestException("Identical game content already has a pending import. Wait for it to finish before rechecking.", 409);
+                items.Add(new("remote:" + id, RommId: id, RemoteSnapshot: snapshot));
+            }
             var job = new RommJob(Guid.NewGuid().ToString("N"), "import", "queued", DateTimeOffset.UtcNow, null, null, config.ConnectionId,
-                ids.Distinct().Select(id => new RommItem("remote:" + id, RommId: id)).ToArray());
+                items.ToArray(), Automatic: automatic);
             store.Save(job);
             return job;
         }
@@ -168,16 +286,11 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                     await Process(job, stoppingToken);
                 }
                 var config = store.Config();
+                await ScheduleSync();
                 if (config.AutoPublish && DateTimeOffset.UtcNow - lastAuto > TimeSpan.FromMinutes(1))
                 {
                     lastAuto = DateTimeOffset.UtcNow;
-                    var linked = Links().ToDictionary(link => link.EntryId);
-                    var pending = store.Jobs().Where(job => job.Status is "queued" or "running" or "awaiting-scan" or "awaiting-import").SelectMany(job => job.Items).Select(item => item.EntryId).ToHashSet();
-                    var ids = catalog.Entries().Where(entry => entry.PublishEligible && !pending.Contains(entry.Id)
-                        && (config.PlatformMappings ?? []).Any(mapping => mapping.Console == entry.Console)
-                        && (!linked.TryGetValue(entry.Id, out var link) || link.Fingerprint != entry.SHA256))
-                        .Select(entry => entry.Id).Take(1000).ToArray();
-                    if (ids.Length > 0) await Queue("publish", ids, true);
+                    await QueueAutomatic();
                 }
             }
             catch (OperationCanceledException) when (stoppingToken.IsCancellationRequested) { break; }
@@ -196,7 +309,11 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         {
             var config = Configured();
             if (config.ConnectionId != job.ConnectionId) throw new RequestException("RomM connection changed. Submit a new operation.");
-            if (job.Kind == "import")
+            if (job.Kind == "sync")
+            {
+                job = job with { Items = await Reconcile(config, token) };
+            }
+            else if (job.Kind == "import")
             {
                 for (var index = 0; index < job.Items.Length; index++)
                 {
@@ -224,6 +341,7 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                                 throw new RequestException("File content changed since synchronization was queued. Recheck and submit again.");
                         if (job.Kind == "publish" && indices.Any(index => job.Items[index].ExportPath is null))
                         {
+                            RequireAutomaticPolicy(job, group.ToArray());
                             var allPresent = true;
                             foreach (var entry in group)
                             {
@@ -242,7 +360,11 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                             else if (!string.Equals(await Hash(catalog.PhysicalPath(entry), token), entry.SHA256, StringComparison.OrdinalIgnoreCase))
                                 throw new RequestException("Local content changed. Recheck before linking descriptive metadata.");
                             var mapping = (config.PlatformMappings ?? []).Single(mapping => mapping.Console == entry.Console);
-                            var metadata = await client.ByHash(config, RommClient.Text(entry.Evidence, "SHA1"), mapping.PlatformId, token);
+                            var existingLink = store.Links().FirstOrDefault(link => link.EntryId == entry.Id
+                                && link.ConnectionId == config.ConnectionId && link.RommId is > 0);
+                            var metadata = job.Kind == "metadata" && existingLink is not null
+                                ? await LinkedMetadata(config, entry, existingLink, token)
+                                : await client.ByHash(config, RommClient.Text(entry.Evidence, "SHA1"), mapping.PlatformId, token);
                             if (metadata is null)
                             {
                                 if (job.Kind == "metadata") throw new RequestException("No exact RomM fingerprint match. Scan RomM or publish the checked file first.", 409);
@@ -253,7 +375,7 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                                 var remoteId = RommClient.Number(metadata.Value, "id");
                                 if (remoteId < 1) throw new RequestException("RomM returned an invalid ROM identifier.", 502);
                                 store.Save(new RommLink(entry.Id, remoteId, "linked", metadata.Value, DateTimeOffset.UtcNow,
-                                    entry.SHA256, config.ConnectionId, job.Items[index].ExportPath));
+                                    entry.SHA256, config.ConnectionId, job.Items[index].ExportPath ?? existingLink?.ExportPath));
                                 catalog.UpdateSync(entry.Id, "linked", $"Linked exact fingerprint to RomM #{remoteId}.");
                                 job.Items[index] = job.Items[index] with { Status = "linked", RommId = remoteId, Error = null };
                                 catalog.Audit(entry.Id, "romm-linked", $"Linked exact fingerprint to RomM #{remoteId}; descriptive metadata imported.");
@@ -348,24 +470,30 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                 if (!string.Equals(await Hash(target, token), entry.SHA256, StringComparison.OrdinalIgnoreCase))
                     throw new RequestException("File changed during export. Recheck before publishing.");
             }
-            foreach (var entry in group) await catalog.EnsurePublishable(catalog.Get(entry.Id));
+            foreach (var entry in group) await catalog.EnsurePublishable(entry);
             if (StoragePaths.Files(stage).Count() != group.Length) throw new RequestException("Unexpected files exist in the staged export. Review storage before retrying.");
-            if (Directory.Exists(directory))
+            await submissions.WaitAsync(token);
+            try
             {
-                var existing = StoragePaths.Files(directory).ToArray();
-                if (existing.Length != group.Length) throw new RequestException("Existing RomM export differs. No files were overwritten.");
-                for (var index = 0; index < group.Length; index++)
-                    if (!File.Exists(StoragePaths.Resolve(directory, names[index]))
-                        || !string.Equals(await Hash(StoragePaths.Resolve(directory, names[index]), token), group[index].SHA256, StringComparison.OrdinalIgnoreCase))
-                        throw new RequestException("A different RomM export already occupies this location. No files were overwritten.");
-                Directory.Delete(stage, true);
+                RequireAutomaticPolicy(job, group);
+                if (Directory.Exists(directory))
+                {
+                    var existing = StoragePaths.Files(directory).ToArray();
+                    if (existing.Length != group.Length) throw new RequestException("Existing RomM export differs. No files were overwritten.");
+                    for (var index = 0; index < group.Length; index++)
+                        if (!File.Exists(StoragePaths.Resolve(directory, names[index]))
+                            || !string.Equals(await Hash(StoragePaths.Resolve(directory, names[index]), token), group[index].SHA256, StringComparison.OrdinalIgnoreCase))
+                            throw new RequestException("A different RomM export already occupies this location. No files were overwritten.");
+                    Directory.Delete(stage, true);
+                }
+                else
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(directory)!);
+                    StoragePaths.AssertNoLinks(ExportRoot, directory);
+                    Directory.Move(stage, directory);
+                }
             }
-            else
-            {
-                Directory.CreateDirectory(Path.GetDirectoryName(directory)!);
-                StoragePaths.AssertNoLinks(ExportRoot, directory);
-                Directory.Move(stage, directory);
-            }
+            finally { submissions.Release(); }
             for (var index = 0; index < group.Length; index++)
             {
                 var itemIndex = Array.FindIndex(job.Items, item => item.EntryId == group[index].Id);
@@ -388,6 +516,23 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         var item = job.Items[index];
         var remoteId = item.RommId ?? throw new RequestException("Missing remote ROM ID.");
         var remote = await client.Get(config, $"api/roms/{remoteId}", token);
+        if (RommClient.Number(remote, "id") != remoteId) throw new RequestException("RomM returned a different game ID.", 409);
+        var snapshot = RommIdentity.Snapshot(remote);
+        if (item.RemoteSnapshot is { } expectedSnapshot && expectedSnapshot.Fingerprint != snapshot.Fingerprint)
+        {
+            var previous = store.Remotes(config.ConnectionId).FirstOrDefault(state => state.RommId == remoteId);
+            RecordConflict(config, remoteId, RommClient.Text(remote, "name"), previous?.Snapshot ?? expectedSnapshot,
+                previous?.EntryIds ?? [], "Remote files changed after this import was queued. Existing bytes were not overwritten.");
+            throw new RequestException("Remote files changed after this import was queued. Review the conflict before importing a new version.", 409);
+        }
+        if (job.Automatic && item.Status is not ("preparing" or "detecting"))
+            RequireInboundPolicy(config.ConnectionId, snapshot.PlatformId);
+        if (item.RemoteSnapshot is null)
+        {
+            item = item with { RemoteSnapshot = snapshot };
+            job.Items[index] = item;
+            store.Save(job);
+        }
         var files = remote.TryGetProperty("files", out var remoteFiles) && remoteFiles.ValueKind == JsonValueKind.Array
             ? remoteFiles.EnumerateArray().ToArray() : [];
         if (files.Length == 0) throw new RequestException("RomM did not supply individual file metadata; no unchecked archive extraction will be attempted.");
@@ -395,12 +540,30 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         var batchId = item.BatchId;
         if (batchId is null)
         {
-            using var request = new HttpRequestMessage(HttpMethod.Post, "batches") { Content = System.Net.Http.Json.JsonContent.Create(new BatchRequest("RomM: " + RommClient.Text(remote, "name")), options: Json.Options) };
+            var duplicate = await FindLocalCopy(config, snapshot, token);
+            if (duplicate is not null)
+            {
+                await BindRemote(config, remoteId, remote, snapshot, duplicate, token, automatic: job.Automatic);
+                job.Items[index] = item with { Status = "completed", Error = null };
+                store.Save(job);
+                return;
+            }
+            batchId = Guid.NewGuid().ToString("N");
+            var batchName = "RomM: " + RommClient.Text(remote, "name");
+            if (batchName.Length > 120) batchName = batchName[..120];
+            job.Items[index] = item = item with { BatchId = batchId, BatchCreationPending = true, BatchName = batchName };
+            store.Save(job);
+        }
+        if (item.BatchCreationPending)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, "batches")
+            { Content = JsonContent.Create(new BatchRequest(item.BatchName ?? throw new RequestException("Missing import allocation name.")), options: Json.Options) };
+            request.Headers.Add("Idempotency-Key", batchId);
             using var response = await storage.Send(request, token);
             response.EnsureSuccessStatusCode();
             var batch = await response.Content.ReadFromJsonAsync<Batch>(Json.Options, token) ?? throw new RequestException("Storage did not create an import.");
-            batchId = batch.Id;
-            job.Items[index] = item = item with { BatchId = batchId, Status = "transferring" };
+            if (batch.Id != batchId) throw new RequestException("Storage returned a different import allocation.", 502);
+            job.Items[index] = item = item with { BatchCreationPending = false, Status = "transferring" };
             store.Save(job);
         }
         var state = await storage.Get<Batch>($"batches/{batchId}", token);
@@ -408,18 +571,9 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
         {
             foreach (var file in files)
             {
-                var filename = StoragePaths.Relative(RommClient.Text(file, "file_name"));
-                if (filename.Contains('/')) throw new RequestException("RomM file_name must be a basename.");
-                var name = filename;
-                if (files.Length > 1)
-                {
-                    var remoteRoot = RommClient.Text(remote, "full_path").TrimEnd('/');
-                    if (remoteRoot.Length == 0) remoteRoot = RommClient.Text(remote, "fs_path").TrimEnd('/') + "/" + RommClient.Text(remote, "fs_name");
-                    var full = RommClient.Text(file, "file_path").TrimEnd('/') + "/" + filename;
-                    if (!full.StartsWith(remoteRoot + "/", StringComparison.Ordinal))
-                        throw new RequestException("RomM supplied a file outside its game's folder.");
-                    name = StoragePaths.Relative(full[(remoteRoot.Length + 1)..]);
-                }
+                if (job.Automatic) RequireInboundPolicy(config.ConnectionId, snapshot.PlatformId);
+                var filename = RommClient.Text(file, "file_name");
+                var name = RommIdentity.FilePath(remote, file, files.Length > 1);
                 var fileId = RommClient.Number(file, "id");
                 if (fileId < 1 || !long.TryParse(RommClient.Text(file, "file_size_bytes"), out var size) || size < 0)
                     throw new RequestException("RomM supplied invalid file metadata.");
@@ -458,6 +612,7 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                 }
                 while (offset < size)
                 {
+                    if (job.Automatic) RequireInboundPolicy(config.ConnectionId, snapshot.PlatformId);
                     var count = (int)Math.Min(buffer.Length, size - offset);
                     await input.ReadExactlyAsync(buffer.AsMemory(0, count), token);
                     sha1.AppendData(buffer, 0, count);
@@ -474,7 +629,16 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                 if (expected.Length > 0 && !Convert.ToHexString(sha1.GetHashAndReset()).Equals(expected, StringComparison.OrdinalIgnoreCase))
                     throw new RequestException("RomM download hash differs from its metadata; import remains unchecked and is not prepared.");
             }
-            await storage.Command($"batches/{batchId}/prepare", new { }, token);
+            await submissions.WaitAsync(token);
+            try
+            {
+                if (job.Automatic) RequireInboundPolicy(config.ConnectionId, snapshot.PlatformId);
+                var latest = await client.Get(config, $"api/roms/{remoteId}", token);
+                if (RommIdentity.Snapshot(latest).Fingerprint != snapshot.Fingerprint)
+                    throw new RequestException("RomM files changed during transfer; this import remains unprepared. Review and retry.", 409);
+                await storage.Command($"batches/{batchId}/prepare", new { }, token);
+            }
+            finally { submissions.Release(); }
         }
         else if (!state.Prepared && state.Status is not ("preparing" or "ready")) throw new RequestException("RomM import needs attention in Imports before retrying.");
         var status = "preparing";
@@ -496,7 +660,12 @@ public sealed class RommService(RommStore store, RommClient client, CanonicalCat
                 throw new RequestException("Imported ROM console detection failed. Review Activity and retry from Imports.");
             status = detection is not null && (detection.Status is "completed" or "completed-with-warnings") && !engineJobs.IsActive(detection.Id)
                 ? "completed" : "detecting";
-            if (status == "completed") await catalog.Refresh(token);
+            if (status == "completed")
+            {
+                await catalog.Refresh(token);
+                var entries = catalog.Entries().Where(entry => entry.BatchId == batchId && !entry.Missing).ToArray();
+                await BindRemote(config, remoteId, remote, snapshot, entries, token);
+            }
         }
         job.Items[index] = item with { Status = status, Error = null };
         store.Save(job);

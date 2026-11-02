@@ -26,6 +26,7 @@ public sealed record CatalogEntry
     public DateTimeOffset? CheckInvalidatedUtc { get; init; }
     public string CheckStatus { get; init; } = "unchecked";
     public string ReferenceStatus { get; init; } = "unmatched";
+    public CatalogRegionEvidence Regions { get; init; } = new([], "filename");
     public string IntegrityStatus { get; init; } = "Unknown";
     public string Security { get; init; } = "Not checked";
     public string Organization { get; init; } = "Pending";

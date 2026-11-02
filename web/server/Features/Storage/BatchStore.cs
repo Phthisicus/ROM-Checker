@@ -39,15 +39,28 @@ public sealed class BatchStore(StorageOptions options)
         if (bytes < 0 || new DriveInfo(options.Root).AvailableFreeSpace - bytes < options.ReserveBytes)
             throw new RequestException("Not enough free storage; reserved free space must remain available.", 507);
     }
-    public Batch Create(string name)
+    public Batch Create(string name, string? id = null)
     {
         if (string.IsNullOrWhiteSpace(name) || name.Length > 120) throw new RequestException("Choose a batch name (1-120 characters).");
+        if (id is not null)
+        {
+            id = StoragePaths.Id(id);
+            var existing = Read<Batch>(Path.Combine(DirectoryFor(id), "batch.json"));
+            if (existing is not null)
+            {
+                if (existing.Name != name.Trim()) throw new RequestException("The import allocation key already belongs to another batch.", 409);
+                return existing;
+            }
+        }
         if (All().Length >= 200) throw new RequestException("Storage is limited to 200 batches. Delete unused batches first.", 409);
-        var batch = new Batch(Guid.NewGuid().ToString("N"), name.Trim(), "uploading", DateTimeOffset.UtcNow);
-        Directory.CreateDirectory(Tree(batch.Id, "originals"));
-        Directory.CreateDirectory(Path.Combine(DirectoryFor(batch.Id), "uploads"));
-        Directory.CreateDirectory(Path.Combine(DirectoryFor(batch.Id), "parts"));
-        Save(batch);
+        var batch = new Batch(id ?? Guid.NewGuid().ToString("N"), name.Trim(), "uploading", DateTimeOffset.UtcNow);
+        var stage = Path.Combine(options.Root, ".allocations", batch.Id);
+        Directory.CreateDirectory(Path.Combine(stage, "originals"));
+        Directory.CreateDirectory(Path.Combine(stage, "uploads"));
+        Directory.CreateDirectory(Path.Combine(stage, "parts"));
+        Write(Path.Combine(stage, "batch.json"), batch);
+        Directory.CreateDirectory(Path.Combine(options.Root, "batches"));
+        Directory.Move(stage, DirectoryFor(batch.Id));
         return batch;
     }
     public UploadState[] Uploads(string id) => Directory.EnumerateFiles(Path.Combine(DirectoryFor(id), "uploads"), "*.json")

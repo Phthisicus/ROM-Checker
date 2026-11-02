@@ -11,6 +11,10 @@
     <PackageReference Include="Microsoft.Data.Sqlite" Version="10.0.14" />
     <PackageReference Include="SQLitePCLRaw.bundle_e_sqlite3" Version="3.0.5" />
     <Compile Include="..\..\server\Features\Catalog\*.cs" Link="Catalog\%(Filename)%(Extension)" />
+    <Compile Include="..\..\server\Features\Romm\RommModels.cs" Link="Romm\RommModels.cs" />
+    <Compile Include="..\..\server\Features\Romm\RommPublishPolicy.cs" Link="Romm\RommPublishPolicy.cs" />
+    <Compile Include="..\..\server\Features\Romm\RommIdentity.cs" Link="Romm\RommIdentity.cs" />
+    <Compile Include="..\..\server\Features\Romm\RommClient.cs" Link="Romm\RommClient.cs" />
     <Compile Include="..\..\server\Models.cs" Link="Backend\Models.cs" />
     <Compile Include="..\..\server\Store.cs" Link="Backend\Store.cs" />
     <Compile Include="..\..\server\JobService.cs" Link="Backend\JobService.cs" />

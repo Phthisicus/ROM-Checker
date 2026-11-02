@@ -11,6 +11,7 @@ export type CatalogEntry = {
   id: string; batchId: string; collectionId: string; fileName: string; console: string; consoleName: string
   category: string; relativePath: string; length: number; sha256: string; checkedUtc?: string
   checkStatus: string; referenceStatus: string; integrityStatus: string; security: string
+  regions?: { values: string[]; source: string }
   organization: string; holdReason?: string; publishEligible: boolean; publishBlockReason?: string
   evidence: Record<string, unknown>; approval?: unknown; duplicateOf?: string; syncStatus?: string
 }
@@ -204,6 +205,7 @@ export default function CatalogView({ advanced, activity, fail, imports, active,
     {file && <Modal drawer title={gameTitle(file.fileName, links[file.id])} close={() => !pending && closeFile()}>
       <div className="game-detail-hero"><Cover link={links[file.id]} title={file.fileName} /><div><span className="eyebrow">{file.consoleName}</span><h3>{gameTitle(file.fileName, links[file.id])}</h3><span className={`game-status inline ${finding(file).tone}`}>{finding(file).text}</span><p className="small muted">Last checked {date(file.checkedUtc)}</p><button className="primary" disabled={pending} onClick={() => verify([file.id], file.fileName)}><ShieldCheck size={17} />Check ROM</button></div></div>
       <p className="small">Checked means checks ran, not a guarantee of safety. Reference identity, integrity and security remain separate.</p>
+      {file.regions && <p className="small">Regions: {file.regions.values.join(', ') || 'Unknown'} · Source: {file.regions.source}. Region metadata is not verification evidence.</p>}
       <RommMetadata link={links[file.id]} fileName={file.fileName} />
       <section className="detail-section"><h3>Verification summary</h3><div className="file-evidence">{[['Reference identity', file.referenceStatus], ['Integrity', file.integrityStatus], ['Security', file.security], ['Organization', file.organization]].map(([key, value]) => <div key={key}><span>{key}</span><strong>{value || 'Not checked'}</strong></div>)}</div>
       {file.holdReason && <div className="notice error"><span>{file.holdReason}</span></div>}<p className="small muted">A reference mismatch can be a hack or translation, not necessarily corruption. Original uploads are never automatically repaired or deleted.</p></section>
