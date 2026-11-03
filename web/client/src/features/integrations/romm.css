@@ -1,0 +1,36 @@
+.romm-section { margin-top: 22px; }
+.connections-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 22px; }
+.connection-card { max-width: 620px; }
+.connection-card h2 { display: flex; align-items: center; gap: 10px; margin: 0; }
+.connection-card p { color: var(--muted); }
+.romm-save-bar { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 18px 22px; margin-bottom: 22px; background: var(--panel-alt); border: 1px solid var(--line); border-radius: 12px; }
+.romm-save-bar p { margin: 6px 0 0; }
+.romm-save-bar button { flex-shrink: 0; }
+.romm-rule-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; align-items: start; }
+.romm-checklist, .romm-reference { min-width: 0; margin: 0; padding: 16px; border: 1px solid var(--line); border-radius: 12px; }
+.romm-checklist legend, .romm-reference legend { padding: 0 7px; font-size: 13px; font-weight: 600; }
+.romm-reference { margin: 20px 0; }
+.romm-checklist-heading { gap: 8px; flex-wrap: wrap; margin-bottom: 12px; font-variant-numeric: tabular-nums; }
+.romm-scope { display: flex; flex-wrap: wrap; gap: 8px 20px; }
+.romm-scope label { margin: 0; }
+.romm-checklist-search { margin: 15px 0 10px; }
+.romm-checklist-actions { gap: 8px; margin-bottom: 12px; }
+.romm-checklist-actions button { padding: 8px 10px; font-size: 11px; }
+.romm-checklist-options { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr)); gap: 6px; max-height: 280px; overflow-y: auto; padding: 4px; overscroll-behavior: contain; }
+.romm-choice { min-width: 0; min-height: 44px; margin: 0; padding: 9px 10px; border: 1px solid transparent; border-radius: 8px; cursor: pointer; background: var(--bg); content-visibility: auto; contain-intrinsic-size: auto 48px; }
+.romm-choice span { min-width: 0; overflow-wrap: anywhere; }
+.romm-choice:hover, .romm-choice:focus-within { border-color: var(--accent); background: var(--panel-alt); }
+.romm-choice:has(input:checked) { border-color: var(--accent); background: var(--accent-dark); }
+.romm-checklist input, .romm-reference input, .romm-automation input { cursor: pointer; }
+.romm-automation { padding: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-alt); }
+.romm-region-group { min-width: 0; }
+.romm-region-options { padding: 0 16px 16px; }
+.romm-region-options summary { font-size: 12px; }
+.romm-mappings { border: 0; padding: 0; margin: 0; min-width: 0; }
+[data-theme="dark"] .romm-section { color-scheme: dark; }
+[data-theme="light"] .romm-section { color-scheme: light; }
+@media (max-width: 800px) { .romm-rule-grid { grid-template-columns: minmax(0, 1fr); } }
+@media (max-width: 640px) {
+  .romm-save-bar { flex-direction: column; align-items: stretch; }
+  .romm-checklist-options { grid-template-columns: minmax(0, 1fr); }
+}

@@ -1,7 +1,6 @@
 import {
   Activity,
   Check, CheckCircle2,
-  ChevronRight,
   Gamepad2, HardDrive, History, LayoutDashboard, ListFilter, Link2,
   LoaderCircle, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Play,
   Settings2, Shield, ShieldAlert, Sun,
@@ -16,6 +15,7 @@ import {
   type Job, type Journal, type Progress
 } from './api'
 import { Modal } from './components/Presentation'
+import Breadcrumbs from './components/Breadcrumbs'
 import Login from './features/authentication/Login'
 import { actions } from './features/jobs/actions'
 import JobsView from './features/jobs/JobsView'
@@ -29,7 +29,7 @@ import SettingsView from './features/settings/SettingsView'
 import StorageView from './features/storage/StorageView'
 import CollectionsView from './features/storage/CollectionsView'
 import CatalogView from './features/library/CatalogView'
-import RommView from './features/integrations/RommView'
+import ConnectionsView from './features/integrations/ConnectionsView'
 import type { Confirmation } from './workspace'
 import { navigate, useRoute } from './navigation'
 import './redesign.css'
@@ -42,7 +42,7 @@ const tabs = [
 ] as const
 export default function App() {
   const [authenticated, setAuthenticated] = useState<boolean | null>(null)
-  const { tab } = useRoute()
+  const { tab, integration } = useRoute()
   const setTab = navigate
   const [expert, setExpert] = useState(() => localStorage.getItem('romchecker-advanced') === 'true')
   const [menuOpen, setMenuOpen] = useState(false)
@@ -67,9 +67,9 @@ export default function App() {
   const toolTab = ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab)
   useEffect(() => { setMenuOpen(false) }, [tab])
   useEffect(() => {
-    document.title = `ROM Checker | ${tab === 'Storage' ? 'Add games' : tab === 'Jobs' ? 'Activity' : tab === 'Integrations' ? 'Connections' : tab}`
+    document.title = `ROM Checker | ${tab === 'Storage' ? 'Add games' : tab === 'Jobs' ? 'Activity' : tab === 'Integrations' ? integration === 'romm' ? 'RomM settings' : 'Connections' : tab}`
     if (authenticated) document.getElementById('main-content')?.focus()
-  }, [tab, authenticated])
+  }, [tab, integration, authenticated])
   useEffect(() => {
     if (!menuOpen) return
     const navigation = document.getElementById('workspace-navigation')
@@ -214,20 +214,20 @@ export default function App() {
         <button className="collapse-navigation icon-button" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => { setCollapsed(!collapsed); localStorage.setItem('romchecker-sidebar', collapsed ? 'expanded' : 'collapsed') }}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}<span>Collapse sidebar</span></button>
         <div className="row spread"><span className="version" data-frontend-version={__APP_VERSION__}>v{info?.version ?? '...'}{info?.buildNumber ? ` · Build ${info.buildNumber}` : ''}</span></div></div>
     </aside>
-    <div className="main-shell" inert={menuOpen}><header className="topbar"><div className="row"><button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={menuOpen} aria-controls="workspace-navigation" onClick={() => setMenuOpen(!menuOpen)}><Menu size={22} /></button><div className="breadcrumb">Your collection <ChevronRight size={14} /><strong>{title}</strong></div></div>
+    <div className="main-shell" inert={menuOpen}><header className="topbar"><div className="row"><button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={menuOpen} aria-controls="workspace-navigation" onClick={() => setMenuOpen(!menuOpen)}><Menu size={22} /></button><Breadcrumbs tab={tab} integration={integration} /></div>
       <div className="row"><span className="server-status"><span className="live-dot" />Self-hosted</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Sign out" onClick={() => api('/logout', { method: 'POST' }).then(() => setAuthenticated(false)).catch(fail)}><LogOut size={18} /></button></div></header>
       <main id="main-content" className="content" tabIndex={-1}>
         {batchId && expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <div className="notice subtle batch-scope"><HardDrive size={18} /><span>Expert tools are scoped to the selected import. Your normal Library always includes all imports.</span><button onClick={() => { setBatchId(''); setTab('Overview') }}>Use server scope</button></div>}
         {error && <div className="notice error" role="alert"><ShieldAlert size={19} /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={17} /></button></div>}
         {notice && <div className="notice success" role="status"><CheckCircle2 size={18} /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={17} /></button></div>}
-        <div className="page-heading"><div><h1>{title}</h1>
-          <p>{tab === 'Library' ? 'A home for every game.' : tab === 'Integrations' ? 'Connect your collection to RomM.' : tab === 'Changes' ? 'Review before anything moves.' : tab === 'Jobs' ? 'Your checks and transfers, without the noise.' : tab === 'Recovery' ? 'Review and recover recorded changes.' : tab === 'Storage' ? 'From your files to your collection. Originals stay protected.' : 'Make this workspace yours.'}</p></div>
+        <div className="page-heading"><div><h1>{tab === 'Integrations' && integration === 'romm' ? 'RomM settings' : title}</h1>
+          <p>{tab === 'Library' ? 'A home for every game.' : tab === 'Integrations' ? integration === 'romm' ? 'Manage your RomM connection and synchronization.' : 'Choose an integration to configure its connection and settings.' : tab === 'Changes' ? 'Review before anything moves.' : tab === 'Jobs' ? 'Your checks and transfers, without the noise.' : tab === 'Recovery' ? 'Review and recover recorded changes.' : tab === 'Storage' ? 'From your files to your collection. Originals stay protected.' : 'Make this workspace yours.'}</p></div>
           {expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <button className="primary" disabled={!!active || pending} onClick={() => start('scan')}><Play size={16} />Check library</button>}
           {expert && tab === 'Storage' && <button onClick={() => setLegacyStorage(!legacyStorage)}>{legacyStorage ? 'Guided imports' : 'Advanced storage & extraction'}</button>}</div>
         {expert && tab === 'Overview' && <OverviewView scope={batchId ? `Storage batch ${batchId}` : undefined} info={info} summary={summary} selected={selected} jobs={jobs} active={active} progress={progress} pending={pending} start={start} confirm={confirm} setTab={setTab} setJobId={setJobId} />}
         {tab === 'Library' && <CatalogView advanced={expert} activity={() => setTab('Jobs')} fail={fail} imports={() => { setBatchId(''); setTab('Storage') }} jobs={jobs} active={active} progress={progress} changed={refresh} />}
         {(tab === 'Settings' || tab === 'Integrations') && <nav className="settings-tabs" aria-label="Settings sections"><button aria-current={tab === 'Settings' ? 'page' : undefined} onClick={() => setTab('Settings')}>Preferences & server</button><button aria-current={tab === 'Integrations' ? 'page' : undefined} onClick={() => setTab('Integrations')}><Link2 size={16} />Connections</button></nav>}
-        {tab === 'Integrations' && <RommView advanced={expert} fail={fail} />}
+        {tab === 'Integrations' && <ConnectionsView integration={integration} advanced={expert} fail={fail} />}
         {expert && (tab === 'ExpertLibrary' || tab === 'Changes') && <LibraryView tab={tab === 'ExpertLibrary' ? 'Library' : 'Changes'} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
         {tab === 'Jobs' && <><ActivitySummary advanced={expert} jobs={jobs} fail={fail} /><JobsView expert={expert} jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} /></>}
         {expert && tab === 'Recovery' && <RecoveryView journals={journals} cleanup={cleanup} cleanupJob={cleanupJob} active={active} pending={pending} start={start} confirm={confirm} />}

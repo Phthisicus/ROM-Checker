@@ -1,0 +1,58 @@
+name: Bug report
+description: Report a reproducible problem in ROM Checker.
+title: "bug: "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach ROM files, passwords, API keys, storage tokens, or unredacted logs. Use synthetic files and a disposable library where possible.
+  - type: input
+    id: version
+    attributes:
+      label: ROM Checker version
+      description: Include the version and, if relevant, image tag or digest from Settings.
+      placeholder: "e.g. 0.2.0-beta.1"
+    validations:
+      required: true
+  - type: dropdown
+    id: deployment
+    attributes:
+      label: Deployment
+      options:
+        - Docker Compose
+        - Local development
+        - Original command-line application
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and the screen, workflow, or command involved.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include the smallest safe, reproducible sequence. Use synthetic files and redact private paths.
+      placeholder: |
+        1. ...
+        2. ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant sanitized logs or screenshots
+      description: Remove secrets, tokens, private paths, hostnames, and personal data before posting.
+    validations:
+      required: false

@@ -1,0 +1,33 @@
+name: Feature request
+description: Suggest an improvement to ROM Checker.
+title: "feature: "
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem should this solve?
+      description: Describe the user need, not only a proposed implementation.
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Explain the outcome and how it should fit the existing workflow.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Include any workaround or alternative approach you have considered.
+    validations:
+      required: false
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Data safety or compatibility considerations
+      description: Note any effect on ROM data, configuration, integrations, or existing deployments.
+    validations:
+      required: false

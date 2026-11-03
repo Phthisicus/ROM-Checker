@@ -25,7 +25,7 @@ public sealed class CanonicalCatalog(CatalogDatabase database, WebOptions option
             var policy = eligibility[entry.Id];
             if (policy.Eligible && blockedUnits.Contains((entry.BatchId, entry.GroupId)))
                 policy = new(false, "A linked file is blocked; the complete unit must remain together.");
-            return entry with { PublishEligible = policy.Eligible, PublishBlockReason = policy.Reason,
+            return entry with { PublishEligible = policy.Eligible, PublishBlockReason = policy.Reason, Regions = CatalogRegions.For(entry),
                 DuplicateOf = owners.TryGetValue(entry.SHA256, out var owner) && owner != entry.Id ? owner : entry.DuplicateOf };
         }).ToArray();
     }
@@ -157,7 +157,7 @@ public sealed class CanonicalCatalog(CatalogDatabase database, WebOptions option
                 other.GroupId == entry.GroupId && !CanPublish(other).Eligible);
             if (blocked is not null) eligibility = new(false, "A linked file is blocked; the complete unit must remain together.");
         }
-        return entry with { PublishEligible = eligibility.Eligible, PublishBlockReason = eligibility.Reason };
+        return entry with { PublishEligible = eligibility.Eligible, PublishBlockReason = eligibility.Reason, Regions = CatalogRegions.For(entry) };
     }
     public async Task<CatalogEntry> EnsurePublishable(CatalogEntry entry)
     {

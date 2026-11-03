@@ -18,6 +18,8 @@ public sealed class RommStore
             CREATE TABLE IF NOT EXISTS romm_config (id INTEGER PRIMARY KEY CHECK(id=1), protected TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS romm_jobs (id TEXT PRIMARY KEY, created TEXT NOT NULL, status TEXT NOT NULL, json TEXT NOT NULL);
             CREATE TABLE IF NOT EXISTS romm_links (id TEXT PRIMARY KEY, json TEXT NOT NULL);
+            CREATE TABLE IF NOT EXISTS romm_remote (connection_id TEXT NOT NULL, rom_id INTEGER NOT NULL, json TEXT NOT NULL,
+                PRIMARY KEY(connection_id,rom_id));
             UPDATE romm_jobs SET status='queued',json=json_set(json,'$.status','queued') WHERE status='running';
             """;
         command.ExecuteNonQuery();
@@ -87,5 +89,29 @@ public sealed class RommStore
         var result = new List<RommLink>();
         while (reader.Read()) result.Add(JsonSerializer.Deserialize<RommLink>(reader.GetString(0), Json.Options)!);
         return result.ToArray();
+    }
+    public RommRemoteState[] Remotes(string connectionId)
+    {
+        using var db = Open();
+        using var command = db.CreateCommand();
+        command.CommandText = "SELECT json FROM romm_remote WHERE connection_id=$connection ORDER BY rom_id";
+        command.Parameters.AddWithValue("$connection", connectionId);
+        using var reader = command.ExecuteReader();
+        var result = new List<RommRemoteState>();
+        while (reader.Read()) result.Add(JsonSerializer.Deserialize<RommRemoteState>(reader.GetString(0), Json.Options)!);
+        return result.ToArray();
+    }
+    public void Save(RommRemoteState state)
+    {
+        using var db = Open();
+        using var command = db.CreateCommand();
+        command.CommandText = """
+            INSERT INTO romm_remote VALUES($connection,$rom,$json)
+            ON CONFLICT(connection_id,rom_id) DO UPDATE SET json=$json
+            """;
+        command.Parameters.AddWithValue("$connection", state.ConnectionId);
+        command.Parameters.AddWithValue("$rom", state.RommId);
+        command.Parameters.AddWithValue("$json", Json.Serialize(state));
+        command.ExecuteNonQuery();
     }
 }

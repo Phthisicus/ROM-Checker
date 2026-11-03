@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "Control two-way RomM synchronization",
+  "description": "Filter automatic publishing by verification evidence, console, region, category, and import. Opt into inbound discovery on selected RomM platforms, exact-content duplicate prevention, scheduled metadata refresh, and confirmed conflict handling.",
+  "upgrade": "Back up application data, managed storage, and the RomM database/library before upgrading. Inbound imports and scheduled metadata refresh default to off. Save platform selections and try a small backed-up library before enabling broader automation. New imports require complete per-file SHA-1 hashes and sizes from RomM and remain unchecked.",
+  "limitations": "Publishing requires a shared export library. Synchronization never automatically overwrites or deletes conflicting files. Live RomM compatibility testing remains outstanding; coverage uses a local protocol fixture."
+}

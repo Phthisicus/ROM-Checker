@@ -6,20 +6,53 @@ const paths: Record<Tab, string> = {
   Integrations: 'settings/connections', Overview: 'tools/server', ExpertLibrary: 'tools/results',
   Changes: 'tools/moves', Recovery: 'tools/recovery',
 }
+let navigationGuard: (() => boolean) | undefined
+
+export function guardNavigation(guard: () => boolean) {
+  navigationGuard = guard
+  const originalURL = location.href
+  const originalState: unknown = history.state
+  let handledURL: string | undefined
+  const checkPop = (event: PopStateEvent) => {
+    handledURL = location.href
+    if (guard()) return
+    history.replaceState(originalState, '', originalURL)
+    event.stopImmediatePropagation()
+  }
+  const checkHash = (event: HashChangeEvent) => {
+    if (event.newURL === handledURL || event.newURL && event.newURL !== location.href) return
+    if (!event.oldURL || guard()) return
+    history.replaceState(originalState, '', event.oldURL)
+    event.stopImmediatePropagation()
+  }
+  window.addEventListener('popstate', checkPop, true)
+  window.addEventListener('hashchange', checkHash, true)
+  return () => {
+    if (navigationGuard === guard) navigationGuard = undefined
+    window.removeEventListener('popstate', checkPop, true)
+    window.removeEventListener('hashchange', checkHash, true)
+  }
+}
 const subscribe = (notify: () => void) => {
   window.addEventListener('hashchange', notify)
   return () => window.removeEventListener('hashchange', notify)
 }
 export function readRoute() {
   const [path, search = ''] = location.hash.replace(/^#\/?/, '').split('?')
-  const tab = (Object.keys(paths) as Tab[]).find(key => paths[key] === path) ?? 'Library'
-  return { tab, params: new URLSearchParams(search) }
+  const integration = path.startsWith('settings/connections/') ? path.slice('settings/connections/'.length) : undefined
+  const tab = integration !== undefined ? 'Integrations'
+    : (Object.keys(paths) as Tab[]).find(key => paths[key] === path) ?? 'Library'
+  return { tab, integration, params: new URLSearchParams(search) }
 }
 function write(hash: string, replace: boolean, state: unknown = null) {
   if (location.hash === hash) return
+  if (navigationGuard && !navigationGuard()) return
   if (replace) history.replaceState(state, '', hash)
   else history.pushState(state, '', hash)
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+}
+export function openIntegration(id: string) {
+  write(`#/settings/connections/${encodeURIComponent(id)}`, false)
 }
 export function navigate(tab: Tab) {
   const route = readRoute()

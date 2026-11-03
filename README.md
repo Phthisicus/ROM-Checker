@@ -1,6 +1,46 @@
+![ROM Checker - Verify. Protect. Preserve.](assets/brands/banner.webp)
+
 # ROM Checker
 
-A self-hosted web workspace for verifying and organizing ROM collections, backed by the original ROM Sorter PowerShell engine.
+**Verify. Protect. Preserve.**
+
+[![CI and delivery](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml/badge.svg?branch=development)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml)
+![Deployment: self-hosted](https://img.shields.io/badge/deployment-self--hosted-91d900)
+![Container platform: Linux amd64](https://img.shields.io/badge/container-Linux%20amd64-555555)
+
+## Introduction
+
+ROM Checker is a self-hosted ROM verification and security platform. It helps you validate ROM integrity, review security findings, and organize gaming collections while keeping your library on infrastructure you control.
+
+## Key features
+
+- Verify file identity, integrity, local antivirus results, online malware indicators, and organization eligibility as separate findings.
+- Browse a permanent library with console grouping, filters, saved views, file details, and import history.
+- Upload folders in resumable chunks or import read-only from explicitly approved SMB servers.
+- Review changes before organization; file moves are journaled and recoverable, and originals are not overwritten.
+- Run background jobs with progress, logs, cancellation for non-mutating work, and recovery tools.
+- Optionally connect RomM for metadata, artwork, imports, and explicitly approved publishing.
+- Deploy with Docker Compose as a single-administrator application.
+
+## Screenshots
+
+Screenshots of the running application are not checked into this repository yet. Product screenshots should be added only from an actual running instance and reviewed to remove private paths, library contents, and other sensitive information.
+
+## How it works
+
+ROM Checker uses the existing PowerShell ROM Sorter engine for analysis. The web application manages a single catalog, settings, and background job queue. Imports are added to that catalog; they are not separate libraries. Verification, reference identity, integrity, security, and organization are reported independently. Online lookups are optional and require user consent where applicable. A clean result is not a guarantee that a file is safe.
+
+## Quick links
+
+- [Docker Compose installation](#run-with-docker-compose)
+- [Configuration reference](#configuration)
+- [RomM integration](#romm-integration)
+- [Security and privacy](#security-and-privacy)
+- [Development and release guide](docs/DEVELOPMENT.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security policy](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
+- [Repository setup recommendations](.github/REPOSITORY_SETUP.md)
 
 ## Web workspace
 
@@ -40,6 +80,8 @@ Manual review approvals require an explanation and are bound to the exact SHA-25
 
 ## RomM integration
 
+Open **Settings > Connections** to select an integration. The overview shows configuration status, not a live connectivity result. Choose **Open RomM settings** to manage RomM at `#/settings/connections/romm`; `#/settings/connections` opens the overview. Every page uses the main top breadcrumb; RomM shows **Your collection > Settings > Connections > RomM**, with clickable ancestors instead of a separate page breadcrumb or back link. Browser history and direct bookmarks are supported. Leaving the RomM page with unsaved edits requires confirmation. Configuration is saved per integration; other connection/privacy settings remain under Preferences & server.
+
 ROM Checker owns managed file identity, verification, approvals, and publication eligibility. RomM supplies descriptive metadata and a browsing/playback library. Metadata linking requires exact hash and platform evidence, never title-only matching. Imported metadata is separate from local verification findings.
 
 Configure a RomM base URL and a dedicated API token under **Settings > Connections**, test the connection, and map each local console to the actual RomM platform ID and filesystem slug. The connection test reads the installed OpenAPI schema and platform list; publishing requires the exact-hash API and token-authenticated scan task API. Older RomM releases may need upgrading. Credentials are protected using the application's persisted Data Protection keys and are never returned by the settings API. Use HTTPS for a non-local network; redirects are deliberately not followed and credentials are not reused when changing servers without supplying a token.
@@ -60,7 +102,29 @@ The API token needs `platforms.read`, `roms.read`, and `tasks.run` for this shar
 
 Filter by console, category, completed checks, reference status, attention, and eligibility. Preview publication before confirming: eligible files and excluded files have separate counts and reasons. Linked groups are expanded and held as a unit when a member is blocked. Automatic publishing is opt-in and uses the same server-side eligibility checks as manual publishing, including a fresh physical fingerprint check. A current exact remote match is linked instead of creating another copy.
 
-**Import from RomM** streams individual game files into a resumable managed import using bounded chunks, preserving nested paths. ROM bytes are not buffered as a whole game. Received files start unchecked, even when RomM already knows their metadata. Remote checksums are checked when supplied; unexpected archives, changed download sizes, or mismatched hashes fail explicitly rather than being silently accepted. No automatic extraction or remote deletion occurs.
+#### Automatic publishing rules
+
+Under **Settings > Connections > Publish to RomM**, enable automatic publication and restrict it by reference requirement, consoles, game categories, regions, and named imports. Choose **Reference matches only** to exclude approved-but-unmatched files; the default preserves the existing policy-eligible behavior. Each filter offers **Any** (unrestricted) or **Selected** with searchable checkboxes, selected counts, and **Select all shown / Clear selection** actions. All filters must match; within a filter any checked value matches. A Selected filter needs at least one choice before saving or previewing; clearing its checkboxes never silently broadens publication. Existing empty saved filters remain unrestricted. Import selection refers to managed import sessions, not individual game IDs or browser saved views.
+
+Regions are normalized from parenthesized tags in checked DAT-match titles, then checked hash-match titles, falling back to filenames. Their source is shown in game details and the rules preview. These tags describe regions, not authenticity. Common full region names and aliases such as `US`, `EU`, `JP`, `UK`, and legacy `U`/`J`/`E` combinations are recognized; language/revision tags and `PAL`/`NTSC` are not geographic evidence. Multi-region games match any selected region. `World` is a separate choice, not a wildcard. With a region filter, unknown and filename-only regions are excluded unless you explicitly allow filename inference or include unknown/disallowed-source regions.
+
+Use **Preview draft publishing rules** before saving. It evaluates draft rules against saved platform mappings without transferring files or changing settings, shows whole-game counts and exclusion reasons, and distinguishes ready, pending, linked, and failed work. **Save RomM settings** saves the entire configuration: connection, mappings, publishing, imports, and schedule. An unsaved-changes indicator distinguishes draft settings from saved policy. Explicitly enable automatic publication to apply the rules; browser library filters do not affect this policy. Every primary file must match. Companions inherit their game's reference/category/region filters but must pass all required checks; linked groups are never split.
+
+The scheduler checks approximately once a minute and keeps complete groups together. It rechecks current rules before making new automatic exports visible, including after a settings change during transfer. Disabling automatic publication prevents new exports; already-exported copies remain and can finish scanning/linking. Failed automatic work requires an explicit retry in RomM activity instead of being endlessly requeued. Rule changes never remove existing exports, bypass verification, or constrain separately confirmed manual publication. Existing installations retain their saved auto-publish setting and unrestricted rules until changed.
+
+**Import from RomM** streams individual game files into a resumable managed import using bounded chunks, preserving nested paths. ROM bytes are not buffered as a whole game. Received files start unchecked, even when RomM already knows their metadata. Complete per-file SHA-1 hashes and sizes are required before new imports can be queued; scan RomM first if they are missing. Unexpected archives, changed download sizes, or mismatched hashes fail explicitly rather than being silently accepted. No automatic extraction or remote deletion occurs.
+
+#### Inbound discovery, metadata schedules, and conflicts
+
+Under **Settings > Connections > Import from RomM**, use the searchable platform checklist, opt into automatic imports, and **Save RomM settings**. No platform is selected implicitly; no selected platforms means no automatic imports. **Metadata & schedule** has a separate metadata-refresh opt-in covering all existing links, including platforms not selected for import. The shared interval is 1-1440 minutes (default 60). The first enabled pass is queued automatically; subsequent passes are timed from persisted completion history, so a restart does not reset the schedule. **Run saved synchronization** queues a pass and rechecks conflicts using saved settings, not unsaved browser drafts. Conflicts and their recovery actions appear separately from these settings.
+
+Discovery pages through RomM's ROM list and fetches individual file metadata (up to 100000 games per pass). Exact per-file SHA-1, sizes, platform, paths, and whole-game identity are persisted alongside import checkpoints. Missing hash evidence is held as a conflict; scan RomM before rechecking. Files are compared as complete linked games, never by title. Existing local content is physically fingerprint-checked and linked rather than downloaded again. Different remote IDs with identical complete content do not create more local copies; existing primary links are preserved. Previously failed or partial imports require an explicit retry rather than an endless stream of new imports. Import batch allocation is idempotent, including retries after a lost response/restart. New downloads enter managed storage, are console-detected, and remain unchecked; neither RomM metadata nor automatic discovery bypasses local verification.
+
+Scheduled reconciliation refreshes descriptive metadata only while exact local and remote content still matches. Manual metadata refresh preserves an existing remote identity and its file baseline rather than silently relinking by hash. Changed remote bytes, file paths or platform, missing remote games, changed local bytes, and missing local files become visible synchronization conflicts. Remote outages fail the sync job rather than masquerading as deletions. Existing files, verification results, approvals, and history are retained. Automatic publication is held for conflicted/ignored linked content to prevent a feedback loop.
+
+Refresh the local catalog and recheck after restoring matching files to recover a clean link. **Keep local copy** ignores the current remote file version without changing local files or metadata; rechecking leaves that version ignored, and a different subsequent remote version reopens the conflict. **Import remote as separate copy** explicitly downloads the current remote version into a new unchecked import when it is not already present, retaining the old local copy. Missing remote files cannot be imported. These actions require confirmation; no conflict action propagates deletions or silently replaces files. Disabling inbound imports stops new transfers at policy checkpoints; already-prepared files remain available. Automatic import and scheduled metadata refresh are disabled by default, including after upgrading an existing installation.
+
+For a live trial, back up ROM Checker's application data and storage and RomM's database/library, use a small dedicated mapped platform or test instance, leave auto-publish off, then enable inbound discovery for that platform only. Run one sync, confirm imported files are unchecked, run again to check that no new imports are created, and compare file hashes. Enable metadata refresh and change a description to confirm it updates without changing verification. On disposable test copies, change/remove a remote file and confirm a conflict appears without local modification; restore and recheck. Review activity/errors before enabling broader automation. A live RomM instance and backed-up library must be provided separately; the bundled protocol fixture is not a real-server compatibility trial.
 
 Connection settings, file mappings, metadata snapshots, queued synchronization jobs, transfer checkpoints, and audit history persist in SQLite. Queued work survives restarts; partially exported files are not visible as a complete group. Retry failed work from Integrations. RomM scans can take time; linking times out after 30 minutes with an actionable error. Reconfiguring the connection requires pending synchronization work to finish.
 
@@ -298,3 +362,54 @@ See **[Development and release guide](docs/DEVELOPMENT.md)** for release-note ex
 ## Original command-line application
 
 The original `RomSorter.ps1`, its regression suite, and Ubuntu/WSL launcher remain available. Run `powershell -File .\RomSorter.ps1` on Windows or `bash RomSorter.sh` on Ubuntu. The web bridge loads engine definitions without starting CLI menus, executes each job in a separate process, and preserves engine safety checks instead of reimplementing ROM analysis in the browser.
+
+## Integrations
+
+- **Local antivirus:** Docker uses ClamAV; Windows runs use Windows Defender where available.
+- **Online malware lookups:** VirusTotal and MalwareBazaar are optional and configured with server-side API keys.
+- **Reference and metadata checks:** custom DAT files, libretro reference data, and Hasheous checks are supported by the verification engine.
+- **RomM:** optional metadata, artwork, import, and explicit publishing workflows are available under Settings > Connections. Publishing uses a shared export library and RomM's API; it is not a direct ROM upload.
+
+## Security and privacy
+
+- ROM Checker is a **single-administrator application**, not a multi-tenant service. Do not expose it as a public upload service.
+- Online verification services receive hashes and metadata, not ROM contents. RomM publishing is an explicit exception: eligible ROM copies are exported to the RomM instance you configure.
+- The Compose setup binds the application to loopback by default. If using a reverse proxy, configure only its exact trusted source IP and keep the internal storage service private.
+- Keep passwords, API keys, storage tokens, database files, and backups protected. Back up the library, application data, and storage before upgrades or destructive cleanup.
+- Antivirus and reference checks provide evidence, not a safety guarantee. Incomplete protection is reported rather than treated as a clean scan.
+
+See [SECURITY.md](SECURITY.md) for reporting instructions and [Configuration](#configuration) for deployment details.
+
+## Roadmap
+
+There is no committed feature roadmap or delivery timeline in the repository. Use GitHub Issues to propose and discuss work; releases describe completed changes. Current documented deployment boundaries include Linux amd64 container images, a single application worker, and no automatic deployment to a running host.
+
+## FAQ
+
+### Does ROM Checker upload my ROM files to online verification services?
+
+Optional external verification lookups send hashes and metadata, not ROM contents. Importing files into your self-hosted instance stores them on its configured storage. If you explicitly configure RomM publishing, eligible copies are exported to the shared library used by that RomM instance.
+
+### Does a clean scan prove that a ROM is safe?
+
+No. Authenticity, integrity, antivirus completion, and malware indicators are separate evidence. “No detections” does not guarantee that a file is safe.
+
+### Does ROM Checker automatically move or delete files?
+
+No import automatically publishes or organizes files. **Verify & organize** is an explicit action; Expert workspace changes require preview and confirmation. Cleanup of processed archives is permanent and requires a fresh verified preview.
+
+### Is this a multi-user service?
+
+No. The web application is designed for one administrator and one canonical library.
+
+### Which license applies?
+
+The repository currently has no project `LICENSE` file. No project license is specified here; see [License](#license) and the repository setup recommendations.
+
+## Contributing
+
+Please read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a change. The project uses feature branches targeting `development`, Conventional Commit titles, focused regression tests, and release-note entries for meaningful changes.
+
+## License
+
+No project license file is currently present. This repository does not specify the terms under which its code may be used, modified, or redistributed. A maintainer must select and add a project license before the repository can communicate an open-source license.

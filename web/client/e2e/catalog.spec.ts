@@ -1,5 +1,133 @@
 import { test, expect } from '@playwright/test'
 
+test('Connections opens per-integration settings and guards unsaved navigation', async ({ page }) => {
+  const requests: string[] = []
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname.replace('/api', '')
+    requests.push(path)
+    let data: unknown = []
+    if (path === '/session') data = { authenticated: true }
+    else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/settings/integrations') data = { approvedSmbHosts: [] }
+    else if (path === '/settings') data = { autoDat: false, hasheous: 'Off', onlineCheck: 'Off', identifyUnknown: false, defenderScan: true }
+    else if (path === '/romm/config') data = {
+      configured: true, url: 'http://fixture:8080', platformMappings: [], autoPublish: false,
+    }
+    else if (path === '/romm/publish-options') data = { consoles: [], regions: [], categories: [], imports: [] }
+    await route.fulfill({ json: data })
+  })
+  await page.goto('/#/settings/connections')
+  await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible()
+  await expect(page.getByText('Configured', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('API token')).toHaveCount(0)
+  expect(requests).not.toContain('/romm/jobs')
+  expect(requests).not.toContain('/romm/links')
+  expect(requests).not.toContain('/romm/conflicts')
+  await page.getByRole('link', { name: 'Open RomM settings' }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByRole('heading', { name: 'RomM settings' })).toBeVisible()
+  const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb', exact: true })
+  await expect(breadcrumb).toContainText('Your collectionSettingsConnectionsRomM')
+  expect(await breadcrumb.evaluate(element => getComputedStyle(element).flexDirection)).toBe('row')
+  expect(await breadcrumb.evaluate(element => getComputedStyle(element).flexWrap)).toBe('nowrap')
+  await expect(page.getByRole('navigation', { name: 'Integration breadcrumb' })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByLabel('API token')).toBeVisible()
+  await page.getByLabel('RomM URL').fill('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.dismiss())
+  await breadcrumb.getByRole('link', { name: 'Connections', exact: true }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.evaluate(() => { history.back() })
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Preferences & server' }).click()
+  await expect(page).toHaveURL(/#\/settings$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://fixture:8080')
+  await breadcrumb.getByRole('link', { name: 'Connections', exact: true }).click()
+  await expect(page).toHaveURL(/settings\/connections$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await page.goForward()
+  await expect(page).toHaveURL(/settings\/connections$/)
+  await page.goto('/#/settings/connections/missing')
+  await expect(page.getByRole('heading', { name: 'Integration not found' })).toBeVisible()
+})
+
+test('RomM checkbox rules preserve selections, distinguish draft actions, and fit mobile screens', async ({ page }) => {
+  let config = {
+    url: 'http://romm-fixture:8080', configured: true, autoPublish: false,
+    platformMappings: [{ console: 'NES', platformId: 1, slug: 'nes' }],
+    publishRules: { referenceRequirement: 'eligible', consoles: [], categories: [], regions: ['Europe'],
+      batchIds: ['missing-import'], allowFilenameRegions: false, includeUnknownRegions: false },
+    sync: { autoImport: false, platformIds: [], refreshMetadata: false, intervalMinutes: 60 },
+  }
+  const writes: { path: string; body: Record<string, unknown> }[] = []
+  await page.route('**/api/**', async route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname.replace('/api', '')
+    let data: unknown = []
+    if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() ?? {} })
+    if (path === '/session') data = { authenticated: true }
+    else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/romm/config') {
+      if (request.method() === 'PUT') config = { ...config, ...request.postDataJSON() }
+      data = config
+    } else if (path === '/romm/publish-options') data = {
+      consoles: ['NES', 'SNES'], categories: ['Original', 'Translations', 'PD_Homebrew_Unlicensed'],
+      regions: ['Europe', 'USA'], imports: [{ id: 'a', name: 'A very long import name that should wrap without widening the page' }],
+    }
+    else if (path === '/romm/auto-publish/preview') data = {
+      total: 0, matched: 0, ready: 0, excluded: 0, pending: 0, linked: 0, failed: 0, page: 1, size: 25, items: [],
+    }
+    await route.fulfill({ json: data })
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/#/settings/connections/romm')
+  const save = page.getByRole('button', { name: 'Save RomM settings' })
+  await expect(save).toHaveCount(1)
+  await expect(page.getByRole('checkbox', { name: 'missing-import (not currently available)' })).toBeChecked()
+  const categories = page.getByRole('group', { name: 'Game categories' })
+  await categories.getByRole('radio', { name: 'Selected game categories' }).check()
+  await expect(save).toBeDisabled()
+  const original = categories.getByRole('checkbox', { name: 'Original' })
+  await original.focus()
+  await original.press('Space')
+  await expect(original).toBeChecked()
+  await categories.getByRole('searchbox').fill('trans')
+  await categories.getByRole('button', { name: 'Select all shown' }).click()
+  await categories.getByRole('searchbox').fill('')
+  await expect(original).toBeChecked()
+  await expect(categories.getByRole('checkbox', { name: 'Translations' })).toBeChecked()
+  await expect(categories.getByText('2 selected')).toBeVisible()
+  await page.getByRole('button', { name: 'Preview draft publishing rules' }).click()
+  await expect(page.getByRole('status')).toContainText('0 games')
+  expect(writes.map(write => write.path)).toEqual(['/romm/auto-publish/preview'])
+  const regions = page.getByRole('group', { name: 'Regions' })
+  await regions.getByRole('button', { name: 'Clear selection' }).click()
+  await expect(save).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Preview draft publishing rules' })).toBeDisabled()
+  await regions.getByRole('radio', { name: 'Any regions' }).check()
+  await expect(save).toBeEnabled()
+  const interval = page.getByLabel('Sync interval (minutes)')
+  await interval.fill('0')
+  await save.click()
+  expect(writes.some(write => write.path === '/romm/config')).toBe(false)
+  await interval.fill('30')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(categories.getByRole('checkbox', { name: 'PD Homebrew Unlicensed' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await save.click()
+  await expect(page.getByText(/All settings saved/)).toBeVisible()
+  expect(config.publishRules).toMatchObject({ categories: ['Original', 'Translations'], regions: [], batchIds: ['missing-import'] })
+  expect(config.sync).toMatchObject({ autoImport: false, platformIds: [], intervalMinutes: 30 })
+  expect(config.autoPublish).toBe(false)
+})
+
 test('collection redesign keeps scoped checks and publication safe, with URLs, advanced tools and mobile navigation', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
@@ -85,8 +213,10 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
   await navigation.getByRole('button', { name: 'Settings', exact: true }).click()
   await page.getByRole('button', { name: 'Connections', exact: true }).click()
   await expect(page).toHaveURL(/settings\/connections/)
+  await page.getByRole('link', { name: 'Open RomM settings' }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm/)
   await expect(page.getByLabel('API token')).toHaveValue('')
-  await page.getByRole('button', { name: 'Save connection & mappings' }).click()
+  await page.getByRole('button', { name: 'Save RomM settings' }).click()
   await expect(page.getByRole('status')).toContainText('RomM settings saved')
   expect(posts.find(post => post.path === '/romm/config')?.body).not.toHaveProperty('token')
   await page.getByRole('button', { name: 'Test saved connection' }).click()
