@@ -1,9 +1,9 @@
 import {
   Activity,
-  Check, CheckCircle2,
+  Check,
   Gamepad2, HardDrive, History, LayoutDashboard, ListFilter, Link2,
-  LoaderCircle, LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Play,
-  Settings2, Shield, ShieldAlert, Sun,
+  LogOut, Menu, Moon, PanelLeftClose, PanelLeftOpen, Play,
+  Settings2, Shield, Sun,
   Trash2,
   X
 } from 'lucide-react'
@@ -15,6 +15,7 @@ import {
   type Job, type Journal, type Progress
 } from './api'
 import { Modal } from './components/Presentation'
+import { Button, LoadingState, NavigationItem, Notice } from './design-system/components'
 import Breadcrumbs from './components/Breadcrumbs'
 import Login from './features/authentication/Login'
 import { actions } from './features/jobs/actions'
@@ -32,7 +33,6 @@ import CatalogView from './features/library/CatalogView'
 import ConnectionsView from './features/integrations/ConnectionsView'
 import type { Confirmation } from './workspace'
 import { navigate, useRoute } from './navigation'
-import './redesign.css'
 
 const tabs = [
   { name: 'Overview', icon: LayoutDashboard }, { name: 'ExpertLibrary', icon: Gamepad2 },
@@ -196,7 +196,7 @@ export default function App() {
     finally { setPending(false) }
   }
   function confirm(value: Confirmation) { setError(''); setConfirmation(value) }
-  if (authenticated === null) return <div className="boot"><LoaderCircle className="spin" />Connecting to ROM Checker...</div>
+  if (authenticated === null) return <LoadingState className="boot">Connecting to ROM Checker...</LoadingState>
   if (!authenticated) return <Login onLogin={() => { setAuthenticated(true); setError('') }} />
   const title = ({ Library: 'Library', Storage: 'Add games', Jobs: 'Activity', Settings: 'Settings', Integrations: 'Connections', Overview: 'Server tools', ExpertLibrary: 'Detailed results', Changes: 'Move previews', Recovery: 'Recovery' })[tab]
   return <div className={`app-shell redesigned ${collapsed ? 'sidebar-collapsed' : ''} ${menuOpen ? 'menu-open' : ''}`}>
@@ -207,9 +207,9 @@ export default function App() {
       <span className="nav-label">COLLECTION</span><nav aria-label="Main navigation">{tabs.filter(item => ['Library', 'Storage', 'Jobs', 'Settings'].includes(item.name)).sort((a, b) => ['Library', 'Storage', 'Jobs', 'Settings'].indexOf(a.name) - ['Library', 'Storage', 'Jobs', 'Settings'].indexOf(b.name)).map(({ name, icon: Icon }) => {
         const label = ({ Library: 'Library', Storage: 'Add games', Jobs: 'Activity', Settings: 'Settings', Overview: '', ExpertLibrary: '', Changes: '', Recovery: '', Integrations: '' })[name]
         const selected = tab === name || name === 'Settings' && tab === 'Integrations'
-        return <button key={name} aria-label={label} title={label} className={selected ? 'nav-item selected' : 'nav-item'} aria-current={selected ? 'page' : undefined} onClick={() => { setTab(name); setLegacyStorage(false) }}><Icon size={20} /><span>{label}</span>{name === 'Jobs' && active && <span className="live-dot" />}</button>
+        return <NavigationItem key={name} aria-label={label} title={label} current={selected} onClick={() => { setTab(name); setLegacyStorage(false) }}><Icon size={20} aria-hidden="true" /><span>{label}</span>{name === 'Jobs' && active && <span className="live-dot" />}</NavigationItem>
       })}</nav>
-      {expert && <><span className="nav-label tools-label">TOOLS</span><nav aria-label="Advanced tools">{tabs.filter(item => ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name)).map(({ name, icon: Icon }) => <button key={name} aria-label={name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'} title={name} className={`nav-item ${tab === name ? 'selected' : ''}`} onClick={() => setTab(name)}><Icon size={19} /><span>{name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'}</span></button>)}</nav></>}
+      {expert && <><span className="nav-label tools-label">TOOLS</span><nav aria-label="Advanced tools">{tabs.filter(item => ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name)).map(({ name, icon: Icon }) => <NavigationItem key={name} aria-label={name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'} title={name} current={tab === name} onClick={() => setTab(name)}><Icon size={20} aria-hidden="true" /><span>{name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'}</span></NavigationItem>)}</nav></>}
       <div className="sidebar-bottom"><button className="advanced-switch" role="switch" aria-label="Advanced mode" aria-checked={expert} title="Advanced mode" onClick={toggleAdvanced}><Settings2 size={18} /><span>Advanced mode</span><i aria-hidden="true" className={expert ? 'switch-track on' : 'switch-track'} /></button>
         <button className="collapse-navigation icon-button" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => { setCollapsed(!collapsed); localStorage.setItem('romchecker-sidebar', collapsed ? 'expanded' : 'collapsed') }}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}<span>Collapse sidebar</span></button>
         <div className="row spread"><span className="version" data-frontend-version={__APP_VERSION__}>v{info?.version ?? '...'}{info?.buildNumber ? ` · Build ${info.buildNumber}` : ''}</span></div></div>
@@ -218,8 +218,8 @@ export default function App() {
       <div className="row"><span className="server-status"><span className="live-dot" />Self-hosted</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Sign out" onClick={() => api('/logout', { method: 'POST' }).then(() => setAuthenticated(false)).catch(fail)}><LogOut size={18} /></button></div></header>
       <main id="main-content" className="content" tabIndex={-1}>
         {batchId && expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <div className="notice subtle batch-scope"><HardDrive size={18} /><span>Expert tools are scoped to the selected import. Your normal Library always includes all imports.</span><button onClick={() => { setBatchId(''); setTab('Overview') }}>Use server scope</button></div>}
-        {error && <div className="notice error" role="alert"><ShieldAlert size={19} /><span>{error}</span><button className="icon-button" aria-label="Dismiss error" onClick={() => setError('')}><X size={17} /></button></div>}
-        {notice && <div className="notice success" role="status"><CheckCircle2 size={18} /><span>{notice}</span><button className="icon-button" aria-label="Dismiss notification" onClick={() => setNotice('')}><X size={17} /></button></div>}
+        {error && <Notice tone="danger" dismissLabel="Dismiss error" onDismiss={() => setError('')}>{error}</Notice>}
+        {notice && <Notice tone="success" onDismiss={() => setNotice('')}>{notice}</Notice>}
         <div className="page-heading"><div><h1>{tab === 'Integrations' && integration === 'romm' ? 'RomM settings' : title}</h1>
           <p>{tab === 'Library' ? 'A home for every game.' : tab === 'Integrations' ? integration === 'romm' ? 'Manage your RomM connection and synchronization.' : 'Choose an integration to configure its connection and settings.' : tab === 'Changes' ? 'Review before anything moves.' : tab === 'Jobs' ? 'Your checks and transfers, without the noise.' : tab === 'Recovery' ? 'Review and recover recorded changes.' : tab === 'Storage' ? 'From your files to your collection. Originals stay protected.' : 'Make this workspace yours.'}</p></div>
           {expert && ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(tab) && <button className="primary" disabled={!!active || pending} onClick={() => start('scan')}><Play size={16} />Check library</button>}
@@ -236,7 +236,7 @@ export default function App() {
         <footer className="page-footer"><span>ROM CHECKER</span><span className="row"><Shield size={14} />Originals preserved. Findings explained.</span></footer>
       </main>
     </div>
-    {confirmation && <Modal title={confirmation.title} close={() => !pending && setConfirmation(undefined)}><div className={`confirmation-icon ${confirmation.dangerous ? 'danger' : ''}`}>{confirmation.dangerous ? <Trash2 size={28} /> : <Shield size={28} />}</div><p>{confirmation.message}</p>{error && <div className="notice error" role="alert">{error}</div>}<div className="dialog-actions"><button disabled={pending} onClick={() => setConfirmation(undefined)}>Cancel</button><button className={confirmation.dangerous ? 'danger-button' : 'primary'} disabled={pending} onClick={() => start(confirmation.action, { sourceId: confirmation.sourceId, journal: confirmation.journal, confirm: true })}>{pending ? <LoaderCircle size={17} className="spin" /> : <Check size={17} />}Confirm</button></div></Modal>}
+    {confirmation && <Modal title={confirmation.title} closeDisabled={pending} close={() => !pending && setConfirmation(undefined)}><div className={`confirmation-icon ${confirmation.dangerous ? 'danger' : ''}`}>{confirmation.dangerous ? <Trash2 size={28} /> : <Shield size={28} />}</div><p>{confirmation.message}</p>{error && <Notice tone="danger">{error}</Notice>}<div className="dialog-actions"><Button disabled={pending} onClick={() => setConfirmation(undefined)}>Cancel</Button><Button variant={confirmation.dangerous ? 'danger' : 'primary'} loading={pending} onClick={() => start(confirmation.action, { sourceId: confirmation.sourceId, journal: confirmation.journal, confirm: true })}>{!pending && <Check size={17} aria-hidden="true" />}Confirm</Button></div></Modal>}
     {file && <FileDetails file={file} selected={selected} close={() => setFile(undefined)} review={review} />}
   </div>
 }

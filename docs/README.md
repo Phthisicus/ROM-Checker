@@ -8,6 +8,7 @@ Use this index to find the project documentation. Keep guidance aligned with the
 
 - [README](../README.md): project overview, Docker Compose installation, integrations, configuration, privacy, and FAQ.
 - [Development and release guide](DEVELOPMENT.md): branch workflow, CI and release rules, deployment, upgrades, backups, and rollback.
+- [Design system](DESIGN_SYSTEM.md): frontend audit, design tokens, shared components, interaction states, accessibility, and incremental adoption rules.
 
 ## Project policies
 
