@@ -123,6 +123,25 @@ describe('collection browser', () => {
     expect(screen.getByRole('table')).toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: 'Security' })).not.toBeInTheDocument()
   })
+  it('shows a retryable load error instead of presenting a failed request as an empty collection', async () => {
+    let failed = false
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === '/api/romm/links') return Response.json([])
+      if (path.startsWith('/api/catalog?') && !failed) {
+        failed = true
+        throw new Error('Catalog service unavailable.')
+      }
+      if (path.startsWith('/api/catalog?')) return Response.json(catalog)
+      throw new Error(`Unexpected request ${path}`)
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(<CatalogView activity={vi.fn()} fail={vi.fn()} imports={vi.fn()} jobs={[]} progress={null} changed={vi.fn().mockResolvedValue(undefined)} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Catalog service unavailable.')
+    expect(screen.queryByText('No ROM files yet')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading collection' }))
+    expect(await screen.findByRole('button', { name: entry.fileName })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
   it('defaults to cover grid without requiring metadata, with safe artwork and details', async () => {
     const { fetcher } = setup({ linked: true })
     await screen.findByRole('button', { name: entry.fileName })

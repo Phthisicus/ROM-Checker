@@ -67,8 +67,8 @@ export function Skeleton({ className = '' }: { className?: string }) {
   return <span className={`ds-skeleton ${className}`} aria-hidden="true" />
 }
 
-export function EmptyState({ title, children, icon, action }: { title: string; children: ReactNode; icon?: ReactNode; action?: ReactNode }) {
-  return <div className="empty ds-empty">{icon && <span className="ds-empty-icon" aria-hidden="true">{icon}</span>}<h3>{title}</h3><p>{children}</p>{action && <div className="ds-empty-action">{action}</div>}</div>
+export function EmptyState({ title, children, icon, action, className = '' }: { title: string; children: ReactNode; icon?: ReactNode; action?: ReactNode; className?: string }) {
+  return <div className={`empty ds-empty ${className}`}>{icon && <span className="ds-empty-icon" aria-hidden="true">{icon}</span>}<h3>{title}</h3><p>{children}</p>{action && <div className="ds-empty-action">{action}</div>}</div>
 }
 
 export function Table({ caption, children, className = '', ...props }: HTMLAttributes<HTMLTableElement> & { caption: string }) {

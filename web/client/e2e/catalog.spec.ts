@@ -131,6 +131,12 @@ test('RomM checkbox rules preserve selections, distinguish draft actions, and fi
 test('collection redesign keeps scoped checks and publication safe, with URLs, advanced tools and mobile navigation', async ({ page }) => {
   const errors: string[] = []
   page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`)
+  })
   const posts: { path: string; body: Record<string, unknown> }[] = []
   const first = { id: 'a:game', batchId: 'a', collectionId: 'game', fileName: 'Verified.nes', console: 'NES', consoleName: 'Nintendo Entertainment System', category: 'Original', relativePath: 'NES\\Verified.nes', length: 40976, sha256: 'abc123', checkedUtc: '2026-10-27T12:00:00Z', checkStatus: 'checked', referenceStatus: 'matched', integrityStatus: 'Valid', security: 'Clean', organization: 'Organized', publishEligible: true, evidence: { Publisher: 'Local fixture' }, syncStatus: 'not-published' }
   const second = { ...first, id: 'b:game', batchId: 'b', fileName: 'Unchecked.nes', checkedUtc: '', checkStatus: 'unchecked', referenceStatus: 'unknown', publishEligible: false, publishBlockReason: 'Unchecked', sha256: '' }
@@ -144,8 +150,13 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
     if (path === '/session') data = { authenticated: true }
     else if (path === '/info') data = { version: 'fixture', buildNumber: 142, library: 'D:\\library' }
     else if (path === '/jobs' || path === '/catalog/verifications' || path === '/romm/jobs' || path.endsWith('/history')) data = []
+    else if (path === '/romm/publish-options') data = { consoles: [], regions: [], categories: [], imports: [] }
+    else if (path === '/romm/conflicts') data = []
     else if (path === '/romm/links') data = [{ entryId: first.id, rommId: 7, status: 'linked', metadata: { name: 'Verified adventure', summary: 'A locally linked RomM game description.', metadatum: { genres: ['Adventure'] } } }]
-    else if (path.startsWith('/romm/artwork/')) { await route.fulfill({ status: 404 }); return }
+    else if (path.startsWith('/romm/artwork/')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path fill="#fff" d="M0 0h1v1H0z"/></svg>' })
+      return
+    }
     else if (path === '/catalog') {
       expect(new URL(request.url()).searchParams.get('attention')).not.toBe('')
       data = catalog
@@ -170,6 +181,17 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
   await page.goto('/')
   const navigation = page.getByRole('navigation', { name: 'Main navigation' })
   await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'All ROMs', exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Collection views' })).toContainText('All ROMs 2')
+  await expect(page.getByRole('button', { name: /Nintendo Entertainment System.*2 ROM files.*1 checked.*1 need attention/ })).toBeVisible()
+  await expect(page.locator('#main-content').getByRole('button', { name: 'Add games', exact: true })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('library-home-dark.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  for (const name of ['Check status', 'Sort library'])
+    expect((await page.getByRole('combobox', { name }).boundingBox())!.width).toBeGreaterThan(100)
+  await page.screenshot({ path: test.info().outputPath('library-home-mobile.png'), fullPage: true })
+  await page.setViewportSize({ width: 1280, height: 900 })
   await expect(navigation.getByRole('button')).toHaveCount(4)
   await expect(page.getByRole('button', { name: 'Detailed results', exact: true })).toHaveCount(0)
   await expect(page.getByRole('img', { name: `No cover available for ${second.fileName}` })).toBeVisible()
@@ -237,6 +259,7 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
   await page.setViewportSize({ width: 390, height: 844 })
   await expect(navigation).not.toBeVisible()
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(await page.locator('#main-content').getByRole('button', { name: 'Add games', exact: true }).boundingBox()).not.toBeNull()
   await page.getByRole('button', { name: 'Open navigation' }).click()
   await expect(navigation).toBeVisible()
   await page.keyboard.press('Shift+Tab')

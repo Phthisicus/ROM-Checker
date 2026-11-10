@@ -2,5 +2,5 @@
   "type": "improvement",
   "title": "A consistent foundation for the ROM Checker interface",
   "description": "Shared controls, dialogs, status badges, and notifications now follow a central dark-first design system with a supported light theme, readable typography, and consistent sizing. Collection operations and RomM integrations retain their existing behavior.",
-  "limitations": "This establishes shared components and styling rules. Page-specific layouts and artwork treatments have not been redesigned."
+  "limitations": "This establishes shared components and styling rules, with a focused improvement to the first-view library. Other page-specific layouts and artwork treatments have not been redesigned."
 }
