@@ -40,7 +40,7 @@ npm run build
 npm test
 ```
 
-For PowerShell engine changes, run `./RomSorter.Tests.ps1` and the relevant integration suite from a supported PowerShell environment. The full command list and optional SMB fixture setup are in the [README verification section](README.md#verification).
+For PowerShell engine changes, run `./RomSorter.Tests.ps1` and the relevant integration suite from a supported PowerShell environment. The full command list and optional SMB fixture setup are in the [operational reference verification section](docs/REFERENCE.md#verification).
 
 ## Pull requests
 

@@ -23,4 +23,4 @@ Do not test against installations or data that you do not own or have explicit p
 - Protect the persistent application data and configuration, and back up application data, ROM storage, and the library.
 - Online lookups may disclose hashes and metadata to their configured services. RomM publishing copies eligible files into the configured shared export library.
 
-See the [README security and privacy section](README.md#security-and-privacy) and [reverse-proxy guidance](README.md#reverse-proxies) for implementation-specific setup details.
+See the [security and privacy reference](docs/REFERENCE.md#security-and-privacy) and [reverse-proxy guide](docs/wiki/Reverse-Proxy-and-HTTPS.md) for implementation-specific setup details.
