@@ -1,8 +1,8 @@
-import { ArrowLeft, ArrowRight, Gamepad2, Grid2X2, List, LoaderCircle, Search, ShieldCheck, SlidersHorizontal, Upload } from 'lucide-react'
+import { ArrowLeft, ArrowRight, Gamepad2, Grid2X2, List, LoaderCircle, Search, ShieldCheck, SlidersHorizontal, Upload, X } from 'lucide-react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { api, bytes, date, type Job, type Progress, type Settings } from '../../api'
 import { Badge, Modal } from '../../components/Presentation'
-import { Button, EmptyState, Notice, Skeleton } from '../../design-system/components'
+import { Button, EmptyState, Notice, Skeleton, StatusBadge } from '../../design-system/components'
 import { PublishDialog } from '../integrations/RommView'
 import { Cover, gameTitle, RommMetadata, type RommLink } from './RommMetadata'
 import { closeLibraryFile, libraryRoute, useRoute } from '../../navigation'
@@ -31,6 +31,7 @@ export function finding(item: CatalogEntry) {
 export default function CatalogView({ advanced, activity, fail, imports, active, progress, jobs, changed }: Props) {
   const { params } = useRoute()
   const [data, setData] = useState<CatalogPage>()
+  const jobStateKey = JSON.stringify(jobs.map(({ id, status }) => ({ id, status })).sort((left, right) => left.id.localeCompare(right.id)))
   const filters = Object.fromEntries(Object.keys(emptyFilters).map(key => [key, params.get(key) ?? ''])) as typeof emptyFilters
   const setFilters = (value: typeof emptyFilters) => libraryRoute({ ...value, page: '', file: '' })
   const [links, setLinks] = useState<Record<string, RommLink>>({})
@@ -90,12 +91,12 @@ export default function CatalogView({ advanced, activity, fail, imports, active,
     setFile(previous => previous?.id === fileId ? previous : undefined)
     api<CatalogEntry>(`/catalog/${encodeURIComponent(fileId)}`).then(value => { if (alive) setFile(value) }).catch(error => { if (alive) fail(error) })
     return () => { alive = false }
-  }, [fileId, jobs, fail])
+  }, [fileId, jobStateKey, fail])
   useEffect(() => {
     let alive = true
     api<RommLink[]>('/romm/links').then(values => { if (alive) setLinks(Object.fromEntries(values.map(link => [link.entryId, link]))) }).catch(error => { if (alive) fail(error) })
     return () => { alive = false }
-  }, [jobs, fail])
+  }, [jobStateKey, fail])
   const refresh = useCallback(async () => {
     const result = await api<CatalogPage>(`/catalog?${query}`)
     setData(result)
@@ -108,7 +109,7 @@ export default function CatalogView({ advanced, activity, fail, imports, active,
       if (alive) { setData(value); setSelected(previous => previous.filter(id => value.ids.includes(id))); setCatalogError('') }
     }).catch(error => { if (alive) setCatalogError(error instanceof Error ? error.message : String(error)) }).finally(() => { if (alive) setLoading(false) })
     return () => { alive = false }
-  }, [query, jobs, fail, catalogRetry])
+  }, [query, jobStateKey, fail, catalogRetry])
   useEffect(() => {
     setHistory(undefined); setCopies(undefined); setApproval(false); setReason('')
   }, [fileId, advanced])
@@ -148,7 +149,7 @@ export default function CatalogView({ advanced, activity, fail, imports, active,
       <button aria-pressed={filters.attention === 'true'} onClick={() => setFilters({ ...emptyFilters, console: filters.console, attention: 'true' })}>Needs attention <span>{data?.counts.attention?.toLocaleString() ?? '—'}</span></button>
       <button aria-pressed={filters.publication === 'eligible'} onClick={() => setFilters({ ...emptyFilters, console: filters.console, publication: 'eligible' })}>Ready for RomM <span>{data?.counts.eligible?.toLocaleString() ?? '—'}</span></button>
     </div>
-    {!filters.console && !!data?.groups.length && <section aria-label="Browse consoles" className="console-shelf">{data.groups.map(group => <button className="console-tile" key={group.key} onClick={() => filter('console', group.key)}><span className="console-monogram">{group.key === '-' ? <Gamepad2 size={20} aria-hidden="true" /> : group.key.slice(0, 4)}</span><strong>{group.name}</strong><span className="console-tile-meta">{group.total.toLocaleString()} ROM files · {group.checked.toLocaleString()} checked{group.attention > 0 ? ` · ${group.attention.toLocaleString()} need attention` : ''}</span><ArrowRight size={16} aria-hidden="true" /></button>)}</section>}
+    {!filters.console && !!data?.groups.length && <section className="console-browser" aria-labelledby="console-browser-heading"><div className="console-browser-heading"><h3 id="console-browser-heading">Browse consoles</h3><span>{data.groups.length.toLocaleString()} {data.groups.length === 1 ? 'system' : 'systems'}</span></div><div className="console-shelf">{data.groups.map(group => <button className="console-tile" key={group.key} onClick={() => filter('console', group.key)}><span className="console-monogram">{group.key === '-' ? <Gamepad2 size={20} aria-hidden="true" /> : group.key.slice(0, 4)}</span><strong>{group.name}</strong><span className="console-tile-meta"><span>{group.total.toLocaleString()} ROM files · {group.checked.toLocaleString()} checked</span>{group.attention > 0 && <StatusBadge tone="warning">{group.attention.toLocaleString()} need attention</StatusBadge>}</span><ArrowRight size={16} aria-hidden="true" /></button>)}</div></section>}
     <section className="catalog-results" aria-busy={loading}>
       <div className="library-toolbar">
         <label className="library-search"><Search size={19} /><input aria-label="Search library" placeholder="Search your collection..." value={filters.q} onChange={event => filter('q', event.target.value)} /></label>
@@ -171,7 +172,7 @@ export default function CatalogView({ advanced, activity, fail, imports, active,
           <button onClick={() => { setFilters(emptyFilters); setSelected([]) }}>Clear filters</button>
         </div></details>
       </div></div>
-      {savedViews.length > 0 && <div className="saved-views" aria-label="Saved library views">{savedViews.map((saved, index) => <span key={index}><button onClick={() => libraryRoute({ ...emptyFilters, sort: '', page: '', file: '', ...saved.query })}>{saved.name}</button><button aria-label={`Remove saved view ${saved.name}`} onClick={() => saveViews(savedViews.filter((_, position) => position !== index))}>×</button></span>)}</div>}
+      {savedViews.length > 0 && <div className="saved-views" aria-label="Saved library views">{savedViews.map((saved, index) => <span key={index}><button onClick={() => libraryRoute({ ...emptyFilters, sort: '', page: '', file: '', ...saved.query })}>{saved.name}</button><button className="saved-view-remove" aria-label={`Remove saved view ${saved.name}`} onClick={() => saveViews(savedViews.filter((_, position) => position !== index))}><X size={14} aria-hidden="true" /></button></span>)}</div>}
       {selected.length > 0 && <fieldset disabled={loading || pending} className="catalog-selection selection-bar row wrap" aria-label="Library selection actions"><strong>{selected.length} selected files</strong><button onClick={() => verify([...selected], `${selected.length} selected files`)} className="primary"><ShieldCheck size={16} />Check selected</button><button onClick={() => setPublish([...selected])}>Publish to RomM…</button><details className="action-menu"><summary>Selection</summary><div><button onClick={() => setSelected(data?.ids ?? [])}>Select all {data?.filtered ?? 0} filtered</button><button onClick={() => setSelected([])}>Clear selection</button></div></details><span className="small muted">Selection spans pages; actions target files, not game titles.</span></fieldset>}
       {catalogError && !data ? <div className="catalog-error-state"><Notice tone="danger">{catalogError}</Notice><Button onClick={() => { setLoading(true); setCatalogRetry(value => value + 1) }}>Retry loading collection</Button></div> : loading && !data ? <div className="cover-skeletons" role="status" aria-label="Loading library"><span className="sr-only">Loading ROM files…</span>{Array.from({ length: 6 }, (_, index) => <Skeleton key={index} className="catalog-cover-skeleton" />)}</div> : !data?.total ? <EmptyState className="empty-state collection-empty" title="No ROM files yet" icon={<Gamepad2 size={36} />} action={<Button variant="primary" onClick={imports}><Upload size={17} aria-hidden="true" />Add games</Button>}>Add a folder of ROMs or connect a network share. Your original files stay protected.</EmptyState> : !data.filtered ? <EmptyState className="empty-state" title="No ROM files match" icon={<Search size={30} />} action={<Button onClick={() => setFilters(emptyFilters)}>Clear filters</Button>}>Try a different search or reset your filters to see more of your collection.</EmptyState> : view === 'covers' ? <div className={`catalog-cover-grid size-${coverSize}`} aria-label="ROM cover grid">{data.items.map(item => {
         const status = finding(item)

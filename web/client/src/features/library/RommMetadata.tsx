@@ -10,7 +10,7 @@ export const gameTitle = (fileName: string, link?: RommLink) => text(link?.metad
 export function Cover({ link, title }: { link?: RommLink; title: string }) {
   const [failed, setFailed] = useState(false)
   useEffect(() => setFailed(false), [link?.entryId, link?.updated])
-  return <div className="rom-cover">{hasMetadata(link) && !failed ? <img src={url(`/romm/artwork/${encodeURIComponent(link!.entryId)}`)} alt={`Cover for ${title}`} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <div className="cover-placeholder" role="img" aria-label={`No cover available for ${title}`}><Gamepad2 size={36} /><strong>{gameTitle(title, link)}</strong><span>ROM CHECKER COLLECTION</span></div>}</div>
+  return <div className="rom-cover">{hasMetadata(link) && !failed ? <img src={url(`/romm/artwork/${encodeURIComponent(link!.entryId)}`)} alt={`Cover for ${title}`} loading="lazy" referrerPolicy="no-referrer" onError={() => setFailed(true)} /> : <div className="cover-placeholder" role="img" aria-label={`No cover available for ${title}`}><Gamepad2 size={36} /></div>}</div>
 }
 export function RommMetadata({ link, fileName }: { link?: RommLink; fileName: string }) {
   if (!hasMetadata(link)) return <section><h3>RomM metadata</h3><p className="small muted">No linked descriptive metadata is available. Publish and link this ROM or refresh its metadata in Settings → Connections.</p></section>

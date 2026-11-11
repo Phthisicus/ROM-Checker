@@ -12,7 +12,7 @@ body { min-width: 320px; }
 button, input, select, textarea { font: inherit; }
 a { color: var(--ds-accent); text-underline-offset: 3px; }
 ::selection { color: var(--ds-text); background: var(--ds-accent-subtle); }
-:where(button, a, input, select, textarea, summary, [tabindex]):focus-visible {
+:where(button, a, input, select, textarea, summary, [tabindex]:not([tabindex="-1"])):focus-visible {
   outline: 2px solid var(--ds-accent);
   outline-offset: 3px;
 }
