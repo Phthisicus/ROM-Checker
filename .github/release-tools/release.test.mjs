@@ -59,9 +59,64 @@ test('versions sort numerically with stable after its prereleases', () => {
 test('editorial entries require meaningful content and migration instructions', () => {
   assert.equal(validateNote(feature), feature)
   for (const value of [{}, { ...feature, type: 'unknown' }, { ...feature, title: 'short' },
-    { ...feature, title: 'A title\nwith injection' }, { ...feature, type: 'breaking' }, { ...feature, extra: true }])
+    { ...feature, title: 'A title\nwith injection' }, { ...feature, type: 'breaking' }, { ...feature, extra: true },
+    { ...feature, supersedesLimitations: ['Old limitation.'] },
+    { ...feature, limitations: 'Replacement.', supersedesLimitations: [] },
+    { ...feature, limitations: 'Replacement.', supersedesLimitations: [''] },
+    { ...feature, limitations: 'Replacement.', supersedesLimitations: ['Replacement.'] },
+    { ...feature, limitations: 'Replacement.', supersedesLimitations: ['Old limitation.', 'Old limitation.'] }])
     assert.throws(() => validateNote(value))
   assert.doesNotThrow(() => validateNote({ ...feature, type: 'breaking', upgrade: 'Back up and migrate the database.' }))
+})
+test('superseded limitations are replaced consistently without removing other notes or upgrades', () => {
+  const old = 'Shared storage is required. Live validation is outstanding.'
+  const replacement = 'Shared storage is required. Validate your own deployment.'
+  const previous = { ...feature, limitations: old, upgrade: 'Back up first.' }
+  const current = { ...feature, title: 'Validate real integration', limitations: replacement, supersedesLimitations: [old] }
+  const unrelated = { ...feature, limitations: 'Only Linux amd64 is supported.' }
+  const plan = { ...input, version: '0.2.0', tag: 'v0.2.0', repository: 'owner/repo',
+    image: 'ghcr.io/owner/repo', notes: [previous, current, unrelated], commits: [] }
+  const info = releaseInfo(plan)
+  assert.deepEqual(info.limitations, [replacement, unrelated.limitations])
+  assert.deepEqual(info.upgradeNotes, [previous.upgrade])
+  assert.ok(info.notes.includes(replacement))
+  assert.ok(info.notes.includes(unrelated.limitations))
+  assert.ok(!info.notes.includes(old))
+  assert.ok(info.notes.includes(previous.description))
+  assert.deepEqual(releaseInfo({ ...plan, notes: [current] }).limitations, [replacement])
+})
+test('cumulative stable RomM notes retain current cautions without outdated test claims', () => {
+  const names = ['20261027-unified-library', 'documentation-and-combined-stack',
+    'romm-two-way-synchronization', '20261112-stable-installation-and-romm']
+  const notes = names.map(name => JSON.parse(readFileSync(resolve(`.github/release-notes/${name}.json`), 'utf8')))
+  const plan = { ...input, version: '0.2.0', tag: 'v0.2.0', repository: 'owner/repo',
+    image: 'ghcr.io/owner/repo', notes, commits: [] }
+  const info = releaseInfo(plan)
+  for (const text of ['shared export', 'platform mappings', 'remote deletion', 'repair checksums',
+    'synthetic files', 'metadata providers', 'backup restoration'])
+    assert.ok(info.limitations.some(limitation => limitation.includes(text)), text)
+  for (const old of notes.at(-1).supersedesLimitations) {
+    assert.ok(!info.limitations.includes(old))
+    assert.ok(!info.notes.includes(old))
+  }
+  for (const note of notes.slice(0, -1)) assert.ok(info.notes.includes(note.description))
+})
+test('release validation rejects unknown superseded limitations', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'romchecker-limitations-'))
+  try {
+    const scripts = join(directory, '.github', 'release-tools')
+    const notes = join(directory, '.github', 'release-notes')
+    mkdirSync(scripts, { recursive: true }); mkdirSync(notes, { recursive: true })
+    copyFileSync(resolve('.github/release-tools/release.mjs'), join(scripts, 'release.mjs'))
+    writeFileSync(join(notes, 'new.json'), JSON.stringify({ ...feature, limitations: 'Still requires a backup.',
+      supersedesLimitations: ['An old limitation.'] }))
+    const run = () => spawnSync(process.execPath, [join(scripts, 'release.mjs'), 'validate'], { encoding: 'utf8' })
+    const invalid = run()
+    assert.notEqual(invalid.status, 0)
+    assert.match(invalid.stderr, /Unknown superseded limitation/)
+    writeFileSync(join(notes, 'old.json'), JSON.stringify({ ...feature, limitations: 'An old limitation.' }))
+    assert.equal(run().status, 0)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 test('notes include user-facing highlights, upgrade cautions, limitations and reproducible container identity', () => {
   const plan = { ...input, version: '1.3.0-beta.1', prerelease: true, tag: 'v1.3.0-beta.1', repository: 'owner/repo',

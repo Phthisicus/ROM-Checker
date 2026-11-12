@@ -21,6 +21,35 @@ Keep the Compose project name and exact image versions/digests with your backup.
 Test restoration to a disposable environment. A backup is not established by
 successfully downloading a ZIP or copying only the SQLite file.
 
+## Rehearse a restore
+
+Before a release, test the backup using a separate Compose project and disposable
+directories. Never point the rehearsal at production volumes, the original
+`ROM_LIBRARY`, an existing RomM library, or the production export directory.
+Keep the original backup unchanged.
+
+1. Finish active work, stop the relevant services, and capture the complete
+   consistent set above, including the exact image versions and configuration.
+2. Copy the backup into isolated volumes and directories for a new Compose project.
+   Adjust its environment file and port bindings. Before starting it, block network
+   access to production RomM and external services: saved integration settings may
+   start automatic work. Preserve the backed-up application data and encryption
+   keys together.
+3. Start the matching image versions against those copies. Confirm health, login,
+   expected imports and findings, file contents, and saved integration settings.
+   Disable synchronization and automatic publication in the restored copy before
+   allowing any integration network access.
+4. Verify a small check-only workflow and inspect Activity and Recovery. If
+   rehearsing interruption, interrupt only disposable work, inspect its state,
+   and retry using supported controls; verify originals are unchanged.
+5. For a combined deployment, separately restore matching RomM database, assets,
+   configuration, and export data into the isolated stack. Confirm the connection
+   and saved integration credentials against the isolated RomM instance, and
+   run the manual checks in [RomM Workflows](RomM-Workflows.md).
+
+Record the image versions, backup date, and results. A failed or untested restore
+is not proof that the backup is usable.
+
 ## Update deliberately
 
 Read release notes and back up first. Preserve the project name and storage paths.

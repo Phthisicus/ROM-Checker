@@ -1,0 +1,12 @@
+{
+  "type": "improvement",
+  "title": "Prepare stable installs and validate RomM workflows",
+  "description": "Deployment examples select the stable image, and installation guides show how to pin a release. A disposable live RomM 5.4.1 test exercised imports, verified manual and automatic publication, conflict handling, and outage recovery with synthetic NES files.",
+  "upgrade": "Back up before changing channels. Existing image settings remain unchanged; new beta and development deployments must explicitly select their intended channel. The stable image and v0.2.0 checkout are available only after successful release delivery.",
+  "limitations": "RomM publication requires a shared export directory, compatible API, and platform mappings. The example pins RomM 5.4.1. Synchronization does not automatically overwrite or delete conflicting files, perform remote deletion, or repair checksums. The live test used synthetic files and did not verify real collections, metadata providers, other RomM versions, or backup restoration; validate your own deployment before enabling automation.",
+  "supersedesLimitations": [
+    "RomM publishing currently requires a shared export directory mounted into RomM plus a compatible API and platform mappings. The integration has protocol-fixture coverage, not validation against a real installed RomM instance. No remote deletion or automatic checksum repair is performed.",
+    "The example pins RomM 5.4.1. Deployment configuration and upstream token instructions have been reviewed, but a live end-to-end RomM compatibility test remains outstanding.",
+    "Publishing requires a shared export library. Synchronization never automatically overwrites or deletes conflicting files. Live RomM compatibility testing remains outstanding; coverage uses a local protocol fixture."
+  ]
+}

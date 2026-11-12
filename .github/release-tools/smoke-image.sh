@@ -11,6 +11,7 @@ cleanup() {
 trap cleanup EXIT
 test "$(docker inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$version"
 test "$(docker inspect "$image" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$revision"
+docker run --rm --entrypoint cat "$image" /app/LICENSE | cmp - LICENSE
 identity="$(docker run --rm --entrypoint cat "$image" /app/build-info.json)"
 frontend_identity="$(docker run --rm --entrypoint cat "$image" /app/web/client/dist/build-info.json)"
 test "$identity" = "$frontend_identity"

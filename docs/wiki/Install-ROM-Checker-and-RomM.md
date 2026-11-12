@@ -4,25 +4,32 @@ This example creates a **new stack**: ROM Checker, internal storage, signature
 updater, RomM, and MariaDB. It does not migrate an existing RomM installation.
 Read [Requirements](Requirements.md) first.
 
-The example pins RomM **5.4.1** and MariaDB **11.4**. RomM's deployment and token
-instructions were checked against its 5.4.1 source. This is not a claim of a
-completed live end-to-end compatibility test; validate a small backed-up collection
-before enabling automation.
+The example pins RomM **5.4.1** and MariaDB **11.4**. A local development build
+was tested against this stack with synthetic files; see [RomM Workflows](RomM-Workflows.md)
+for the scope. Validate your own version and a small backed-up collection before
+enabling automation.
 
 ## 1. Get both Compose files
 
+After the 0.2.0 release has been published, check out its release tag:
+
 ```sh
-git clone --branch development https://github.com/Phthisicus/ROM-Checker.git
+git clone --branch v0.2.0 https://github.com/Phthisicus/ROM-Checker.git
 cd ROM-Checker
 cp .env.romm.example .env.romm
 ```
 
-Keep [`compose.yml`](https://github.com/Phthisicus/ROM-Checker/blob/development/compose.yml)
-and [`compose.romm.yml`](https://github.com/Phthisicus/ROM-Checker/blob/development/compose.romm.yml)
+Keep `compose.yml` and `compose.romm.yml` from that same release checkout
 together: the combined file inherits ROM Checker's services from the standalone
 file. Use **only** `-f compose.romm.yml` for this path, not two running stacks.
 
-For a release, obtain both files and the environment example from that same revision.
+The example defaults to the stable `latest` image. Pin `ROMCHECKER_IMAGE` to the
+matching release version or digest for repeatable deployments. Before the first
+stable release, use a matching beta or development checkout and explicitly select
+its published image version or `:beta` / `:development` channel. Wait for delivery
+to succeed; do not assume `latest` or the 0.2.0 tag exists.
+For a beta deployment, replace the `0.2.0` image in the example below with
+`beta` or the exact published beta version.
 
 ## 2. Create dedicated directories and secrets
 
@@ -33,6 +40,7 @@ ROM_LIBRARY=/srv/rom-checker/server-library
 ROMM_LIBRARY=/srv/rom-checker/romm-export
 ROMCHECKER_PASSWORD=<unique password, at least 16 characters>
 ROMCHECKER_STORAGE_TOKEN=<independent random secret, at least 32 characters>
+ROMCHECKER_IMAGE=ghcr.io/phthisicus/rom-checker:0.2.0
 ROMM_AUTH_SECRET_KEY=<independent random secret>
 ROMM_DB_PASSWORD=<independent random database password>
 ROMM_DB_ROOT_PASSWORD=<different random root password>

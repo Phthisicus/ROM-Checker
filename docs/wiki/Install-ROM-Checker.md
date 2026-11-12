@@ -5,18 +5,26 @@ signature updater. RomM is optional. Read [Requirements](Requirements.md) first.
 
 ## 1. Get the deployment files
 
-For the documentation and examples on the integration branch:
+After the 0.2.0 release has been published, check out its release tag:
 
 ```sh
-git clone --branch development https://github.com/Phthisicus/ROM-Checker.git
+git clone --branch v0.2.0 https://github.com/Phthisicus/ROM-Checker.git
 cd ROM-Checker
 cp .env.example .env
 ```
 
-For a released deployment, use the matching release checkout instead. The examples
-default to the `beta` image; select a published version or digest in
-`ROMCHECKER_IMAGE` when reproducibility matters. Source availability on development
-does not imply the same features have reached a beta/stable image.
+The examples default to the stable `latest` image, which moves with subsequent
+stable releases. For a reproducible installation, set `ROMCHECKER_IMAGE` to the
+exact image version or digest from the matching release page, as shown below.
+Use deployment files from that same release tag.
+
+**Before 0.2.0 is published**, neither its tag nor the stable image is guaranteed
+to exist. For prerelease testing, use the matching beta or development checkout
+and explicitly set `ROMCHECKER_IMAGE` to its published image version or channel
+(`ghcr.io/phthisicus/rom-checker:beta` or `:development`). Wait for that channel's
+delivery to succeed; source changes alone do not update a published image.
+For a beta deployment, replace the `0.2.0` image in the example below with
+`beta` or the exact published beta version.
 
 ## 2. Configure storage and credentials
 
@@ -26,7 +34,7 @@ Edit `.env`:
 ROM_LIBRARY=/srv/rom-checker/server-library
 ROMCHECKER_PASSWORD=<unique password of at least 16 characters>
 ROMCHECKER_STORAGE_TOKEN=<separate random secret of at least 32 characters>
-ROMCHECKER_IMAGE=ghcr.io/phthisicus/rom-checker:beta
+ROMCHECKER_IMAGE=ghcr.io/phthisicus/rom-checker:0.2.0
 ```
 
 Replace the placeholders; do not use them as credentials. Generate an independent

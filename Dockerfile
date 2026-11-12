@@ -68,6 +68,7 @@ COPY web/engine/ ./web/engine/
 COPY deploy/freshclam.conf /etc/clamav/freshclam.conf
 RUN sed -i 's/\r$//' /etc/clamav/freshclam.conf
 COPY README.md ./README.md
+COPY LICENSE ./LICENSE
 ENV ASPNETCORE_URLS=http://+:8080 \
     ROMCHECKER_ENGINE=/app \
     ROMCHECKER_LIBRARY=/library \

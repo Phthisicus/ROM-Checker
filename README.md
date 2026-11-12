@@ -61,6 +61,8 @@ integration features work.
 
 Documentation sources are also available [in this checkout](docs/wiki/Home.md).
 The combined Compose file extends `compose.yml`; keep both files together.
+Examples default to the stable `latest` image. Before the first stable release,
+explicitly select a published beta or development image for prerelease testing.
 
 ## Before you start
 
@@ -83,5 +85,5 @@ The original PowerShell command-line engine remains available through
 
 ## License
 
-No project license file is currently present. This repository does not yet specify
-permission to use, modify, or redistribute its code.
+ROM Checker is licensed under the [GNU Affero General Public License v3.0](LICENSE).
+Third-party components and assets may have their own licenses.

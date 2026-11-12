@@ -54,8 +54,14 @@ export function validateNote(note, path = 'release note') {
     if (note[key] !== undefined && (typeof note[key] !== 'string' || note[key].length > 4000))
       throw new Error(`${path}: ${key} must be a string of at most 4000 characters.`)
   }
+  if (note.supersedesLimitations !== undefined && (!Array.isArray(note.supersedesLimitations)
+    || !note.supersedesLimitations.length || !note.limitations?.trim()
+    || note.supersedesLimitations.some(value => typeof value !== 'string' || !value.trim() || value.length > 4000)
+    || new Set(note.supersedesLimitations.map(value => value.trim())).size !== note.supersedesLimitations.length
+    || note.supersedesLimitations.some(value => value.trim() === note.limitations.trim())))
+    throw new Error(`${path}: superseded limitations require distinct nonempty texts and a replacement limitation.`)
   if (note.type === 'breaking' && !note.upgrade?.trim()) throw new Error(`${path}: breaking changes require upgrade instructions.`)
-  const unexpected = Object.keys(note).filter(key => !['type', 'title', 'description', 'upgrade', 'limitations'].includes(key))
+  const unexpected = Object.keys(note).filter(key => !['type', 'title', 'description', 'upgrade', 'limitations', 'supersedesLimitations'].includes(key))
   if (unexpected.length) throw new Error(`${path}: unknown fields: ${unexpected.join(', ')}.`)
   return note
 }
@@ -88,6 +94,10 @@ function baselineFor(tags, sha, beta, exclude) {
   return eligible.sort((a, b) => compareVersions(b.name, a.name))[0]?.name ?? null
 }
 function escapeHeading(text) { return text.replace(/[<>\\`*_#[\]]/g, character => '\\' + character) }
+function currentLimitations(notes) {
+  const superseded = new Set(notes.flatMap(note => note.supersedesLimitations ?? []).map(text => text.trim()))
+  return [...new Set(notes.map(note => note.limitations?.trim()).filter(Boolean))].filter(text => !superseded.has(text))
+}
 export function renderNotes(plan, digest = null) {
   const sections = [
     ['✨ New unlocks — Features', ['feature']],
@@ -112,7 +122,7 @@ export function renderNotes(plan, digest = null) {
   }
   if (!plan.notes.length) lines.push('## 📋 Changes', '', 'Check the session log below for this release\'s commit history. No editorial feature summary was supplied.', '')
   const upgrades = [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))]
-  const limitations = [...new Set(plan.notes.map(note => note.limitations?.trim()).filter(Boolean))]
+  const limitations = currentLimitations(plan.notes)
   lines.push('## ⬆️ Before you upgrade — Upgrade notes', '', 'Save your progress before the next session.', '',
     'Back up application data, ROM storage, and configuration. Use the same image version for the application, storage service, and signature updater. Rollback may require restoring the matching data backup.', '')
   for (const text of upgrades) lines.push(text, '')
@@ -140,7 +150,7 @@ export function releaseInfo(plan) {
       : `https://github.com/${plan.repository}/releases/tag/${plan.tag}`,
     notes: renderNotes(plan),
     upgradeNotes: [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))],
-    limitations: [...new Set(plan.notes.map(note => note.limitations?.trim()).filter(Boolean))]
+    limitations: currentLimitations(plan.notes)
   }
 }
 function writeReleaseInfo(plan) {
@@ -162,8 +172,12 @@ function readPlan(path) {
 export function run(command, args) {
   if (command === 'validate') {
     const directory = join(root, '.github', 'release-notes')
-    for (const name of readdirSync(directory).filter(name => name.endsWith('.json')))
-      validateNote(JSON.parse(readFileSync(join(directory, name), 'utf8')), name)
+    const notes = readdirSync(directory).filter(name => name.endsWith('.json')).map(name =>
+      validateNote(JSON.parse(readFileSync(join(directory, name), 'utf8')), name))
+    const limitations = new Set(notes.map(note => note.limitations?.trim()).filter(Boolean))
+    for (const note of notes)
+      for (const text of note.supersedesLimitations ?? [])
+        if (!limitations.has(text.trim())) throw new Error(`Unknown superseded limitation: ${text}`)
     if (args[0]) {
       const base = args[0]
       const changed = git('diff', '--name-status', `${base}...HEAD`).split('\n')
