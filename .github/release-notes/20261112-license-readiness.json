@@ -1,0 +1,6 @@
+{
+  "type": "maintenance",
+  "title": "Clarify licensing and release readiness",
+  "description": "ROM Checker is available under the GNU AGPL v3. Installation guides clarify release image selection, and the documentation provides practical RomM and backup-restore rehearsal checklists.",
+  "limitations": "Backup restoration must still be verified in the target environment."
+}

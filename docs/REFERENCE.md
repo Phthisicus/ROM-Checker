@@ -133,7 +133,7 @@ For a live trial, back up ROM Checker's application data and storage and RomM's 
 
 Connection settings, file mappings, metadata snapshots, queued synchronization jobs, transfer checkpoints, and audit history persist in SQLite. Queued work survives restarts; partially exported files are not visible as a complete group. Retry failed work from Integrations. RomM scans can take time; linking times out after 30 minutes with an actionable error. Reconfiguring the connection requires pending synchronization work to finish.
 
-The integration is exercised against a local HTTP protocol fixture. The optional `compose.romm.yml` example provisions RomM, but fixture coverage and source-reviewed deployment examples are not a claim of live compatibility with every RomM version/provider combination. Test your installed instance and a small backed-up library before enabling automatic publishing.
+The integration is exercised against a local HTTP protocol fixture. On 2026-11-12, a local development build was also tested with the supplied RomM 5.4.1 stack and synthetic NES files; see [RomM Workflows](wiki/RomM-Workflows.md) for the scope. This does not establish compatibility with every RomM version, metadata provider, or real collection. Test your installed instance and a small backed-up library before enabling automatic publishing.
 
 ## Run with Docker Compose
 
@@ -410,7 +410,7 @@ No. The web application is designed for one administrator and one canonical libr
 
 ### Which license applies?
 
-The repository currently has no project `LICENSE` file. No project license is specified here; see [License](#license) and the repository setup recommendations.
+ROM Checker is licensed under the GNU Affero General Public License v3.0; see [License](#license).
 
 ## Contributing
 
@@ -418,4 +418,4 @@ Please read [CONTRIBUTING.md](../CONTRIBUTING.md) before opening a change. The p
 
 ## License
 
-No project license file is currently present. This repository does not specify the terms under which its code may be used, modified, or redistributed. A maintainer must select and add a project license before the repository can communicate an open-source license.
+ROM Checker is licensed under the [GNU Affero General Public License v3.0](../LICENSE). Third-party components and assets may have their own licenses.

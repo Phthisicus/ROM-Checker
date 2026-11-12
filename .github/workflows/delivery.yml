@@ -55,8 +55,9 @@ jobs:
           VERSION: ${{ steps.identity.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          if docker buildx imagetools inspect "$IMAGE:$VERSION" > "$RUNNER_TEMP/development-image.txt" 2> "$RUNNER_TEMP/development-image-error.txt"; then
-            docker pull "$IMAGE:$VERSION"
+          source .github/release-tools/registry-retry.sh
+          if registry_retry docker buildx imagetools inspect "$IMAGE:$VERSION" > "$RUNNER_TEMP/development-image.txt" 2> "$RUNNER_TEMP/development-image-error.txt"; then
+            registry_retry docker pull "$IMAGE:$VERSION"
             test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION"
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -67,6 +68,7 @@ jobs:
             exit 1
           fi
       - name: Build development candidate
+        id: candidate_build
         if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@v7
         with:
@@ -84,6 +86,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan development candidate
+        id: candidate_scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.identity.outputs.image }}:${{ steps.identity.outputs.version }}
@@ -92,12 +95,14 @@ jobs:
           ignore-unfixed: true
           exit-code: '1'
       - name: Verify development runtime identity
+        id: candidate_smoke
         env:
           IMAGE: ${{ steps.identity.outputs.image }}:${{ steps.identity.outputs.version }}
           VERSION: ${{ steps.identity.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
       - name: Publish development image without creating a release
+        id: image_publish
         if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@v7
         with:
@@ -124,10 +129,22 @@ jobs:
           IMAGE: ${{ steps.identity.outputs.image }}
           VERSION: ${{ steps.identity.outputs.version }}
         run: |
-          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          source .github/release-tools/registry-retry.sh
+          digest="$(registry_retry docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+          registry_retry docker pull "$IMAGE@$digest"
+      - name: Scan published development digest
+        id: published_scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.identity.outputs.image }}@${{ steps.image.outputs.digest }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
       - name: Publish and verify immutable development release metadata
+        id: metadata
         env:
           IMAGE: ${{ steps.identity.outputs.image }}
           VERSION: ${{ steps.identity.outputs.version }}
@@ -135,6 +152,7 @@ jobs:
           CHANNEL: development
         run: bash .github/release-tools/publish-metadata.sh
       - name: Verify published image and update development alias
+        id: alias
         env:
           GH_TOKEN: ${{ github.token }}
           IMAGE: ${{ steps.identity.outputs.image }}
@@ -142,15 +160,33 @@ jobs:
           VERSION: ${{ steps.identity.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
+          BRANCH: development
         run: |
-          docker pull "$IMAGE@$DIGEST"
+          source .github/release-tools/registry-retry.sh
+          registry_retry docker pull "$IMAGE@$DIGEST"
           bash .github/release-tools/smoke-image.sh "$IMAGE@$DIGEST" "$VERSION" "$SOURCE_SHA"
-          head="$(gh api "repos/$REPOSITORY/git/ref/heads/development" --jq .object.sha)"
-          if [ "$head" = "$SOURCE_SHA" ]; then
-            docker buildx imagetools create --tag "$IMAGE:development" "$IMAGE@$DIGEST"
-          fi
+          bash .github/release-tools/update-alias.sh
           attempt="$(docker inspect "$IMAGE@$DIGEST" --format '{{index .Config.Labels "io.romchecker.build-attempt"}}')"
           printf '## Development container\n\nVersion: %s\n\nBuild: %s (image build attempt %s)\n\nImage: %s:%s\n\nDigest: %s\n\nNo Git tag or GitHub release created.\n' "$VERSION" "$BUILD_NUMBER" "$attempt" "$IMAGE" "$VERSION" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
+      - name: Development delivery recovery summary
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+          STATUS: ${{ job.status }}
+          IMAGE: ${{ steps.identity.outputs.image }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          {
+            echo "## Development delivery: $STATUS"
+            echo 'Stage outcomes (skipped means not reached or an existing image was reused):'
+            echo "$STEPS" | jq -r 'to_entries[] | "- \(.key): \(.value.outcome)"'
+            printf '\nImage: %s:%s; resolved digest: %s\n' "${IMAGE:-unknown}" "${VERSION:-unknown}" "${DIGEST:-unknown}"
+            echo "$STEPS" | jq -r '"Existing image reused: \(.existing.outputs.found // "unknown"); metadata verification: \(.metadata.outcome // "not reached"); alias moved: \(.alias.outputs.moved // "unknown")"'
+            echo
+            echo 'A failed publish can leave an image or metadata even when its step failed. Inspect the registry before changing anything.'
+            echo 'For transient registry errors, rerun this delivery; for source defects, submit a new PR. Do not automatically roll back the branch or database.'
+          } >> "$GITHUB_STEP_SUMMARY"
   publish:
     name: Publish checked release
     if: github.ref_name == 'beta' || github.ref_name == 'main'
@@ -184,8 +220,10 @@ jobs:
           REPOSITORY: ${{ github.repository }}
         run: node .github/release-tools/release.mjs plan "$BRANCH" "$SOURCE_SHA" "$REPOSITORY" .release .release/published-tags.txt
       - name: Reserve immutable version for retry
+        id: reserve
         run: node .github/release-tools/release.mjs reserve .release/release-plan.json
       - name: Stamp application and frontend version for this build
+        id: stamp
         run: |
           node .github/release-tools/release.mjs stamp .release/release-plan.json
           echo "BUILT_UTC=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_ENV"
@@ -202,8 +240,9 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          if docker buildx imagetools inspect "$IMAGE:$VERSION" > .release/registry.txt 2> .release/registry-error.txt; then
-            docker pull "$IMAGE:$VERSION"
+          source .github/release-tools/registry-retry.sh
+          if registry_retry docker buildx imagetools inspect "$IMAGE:$VERSION" > .release/registry.txt 2> .release/registry-error.txt; then
+            registry_retry docker pull "$IMAGE:$VERSION"
             test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = "$SOURCE_SHA"
             test "$(docker inspect "$IMAGE:$VERSION" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')" = "$VERSION"
             echo "found=true" >> "$GITHUB_OUTPUT"
@@ -214,6 +253,7 @@ jobs:
             exit 1
           fi
       - name: Build candidate without publishing
+        id: candidate_build
         if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@v7
         with:
@@ -231,6 +271,7 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
       - name: Scan candidate container
+        id: candidate_scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
@@ -240,12 +281,14 @@ jobs:
           exit-code: '1'
           format: table
       - name: Verify the exact candidate runtime and version
+        id: candidate_smoke
         env:
           IMAGE: ${{ steps.plan.outputs.image }}:${{ steps.plan.outputs.version }}
           VERSION: ${{ steps.plan.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: bash .github/release-tools/smoke-image.sh "$IMAGE" "$VERSION" "$SOURCE_SHA"
       - name: Publish immutable image with SBOM and provenance
+        id: image_publish
         if: steps.existing.outputs.found != 'true'
         uses: docker/build-push-action@v7
         with:
@@ -271,14 +314,25 @@ jobs:
           VERSION: ${{ steps.plan.outputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
-          digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
+          source .github/release-tools/registry-retry.sh
+          digest="$(registry_retry docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
-          docker pull "$IMAGE@$digest"
+          registry_retry docker pull "$IMAGE@$digest"
           bash .github/release-tools/smoke-image.sh "$IMAGE@$digest" "$VERSION" "$SOURCE_SHA"
           node .github/release-tools/release.mjs notes .release/release-plan.json "$digest"
           (cd .release && sha256sum release-manifest.json image-digest.txt > SHA256SUMS)
+      - name: Scan published release digest
+        id: published_scan
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: ${{ steps.plan.outputs.image }}@${{ steps.image.outputs.digest }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
       - name: Publish and verify immutable release metadata
+        id: metadata
         env:
           IMAGE: ${{ steps.plan.outputs.image }}
           VERSION: ${{ steps.plan.outputs.version }}
@@ -286,8 +340,10 @@ jobs:
           CHANNEL: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
         run: bash .github/release-tools/publish-metadata.sh
       - name: Publish complete GitHub release
+        id: release
         run: node .github/release-tools/release.mjs publish .release/release-plan.json
       - name: Update channel aliases only for the current branch head
+        id: alias
         env:
           IMAGE: ${{ steps.plan.outputs.image }}
           DIGEST: ${{ steps.image.outputs.digest }}
@@ -295,14 +351,7 @@ jobs:
           BRANCH: ${{ github.ref_name }}
           REPOSITORY: ${{ github.repository }}
         run: |
-          head="$(gh api "repos/$REPOSITORY/git/ref/heads/$BRANCH" --jq .object.sha)"
-          if [ "$head" != "$SOURCE_SHA" ]; then
-            echo "A newer push exists. Keeping channel aliases unchanged." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          alias=beta
-          if [ "$BRANCH" = main ]; then alias=latest; fi
-          docker buildx imagetools create --tag "$IMAGE:$alias" --tag "$IMAGE:$BRANCH-sha-$SOURCE_SHA" "$IMAGE@$DIGEST"
+          bash .github/release-tools/update-alias.sh
       - name: Release summary
         env:
           VERSION: ${{ steps.plan.outputs.version }}
@@ -311,9 +360,43 @@ jobs:
         run: |
           printf "## ROM Checker %s\n\nContainer: \`%s@%s\`\n\n" "$VERSION" "$IMAGE" "$DIGEST" >> "$GITHUB_STEP_SUMMARY"
           cat .release/release-notes.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Release delivery recovery summary
+        if: always()
+        env:
+          STEPS: ${{ toJSON(steps) }}
+          STATUS: ${{ job.status }}
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          DIGEST: ${{ steps.image.outputs.digest }}
+        run: |
+          {
+            echo "## Release delivery: $STATUS"
+            echo 'Stage outcomes (skipped means not reached or an existing image was reused):'
+            echo "$STEPS" | jq -r 'to_entries[] | "- \(.key): \(.value.outcome)"'
+            printf '\nVersion: %s; image: %s; resolved digest: %s\n' "${VERSION:-unknown}" "${IMAGE:-unknown}" "${DIGEST:-unknown}"
+            echo "$STEPS" | jq -r '"Existing image reused: \(.existing.outputs.found // "unknown"); metadata verification: \(.metadata.outcome // "not reached"); release verification: \(.release.outcome // "not reached"); alias moved: \(.alias.outputs.moved // "unknown")"'
+            echo
+            echo 'A failed step can still leave a reserved tag, image, metadata, draft or published release. Inspect the registry and release before recovery.'
+            echo 'For transient registry errors, rerun this delivery; for source defects, submit a new PR. Do not automatically roll back the branch or database.'
+          } >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         if: always()
         with:
           name: release-record-${{ github.run_id }}-${{ github.run_attempt }}
           path: .release/
           retention-days: 90
+  delivery-status:
+    name: Delivery status
+    if: always()
+    needs: [checks, development-image, publish]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Summarize delivery gate
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          {
+            echo '## Delivery gate'
+            echo "$RESULTS" | jq -r 'to_entries[] | "- \(.key): \(.value.result)"'
+            echo 'If checks failed, publication was not started. Inspect the failed gate; rerun transient failures or fix source through a new PR.'
+          } >> "$GITHUB_STEP_SUMMARY"

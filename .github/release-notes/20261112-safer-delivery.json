@@ -1,0 +1,6 @@
+{
+  "type": "maintenance",
+  "title": "Make release delivery safer to recover",
+  "description": "Pull requests check release metadata with their proposed merge, and delivery verifies the published image and release assets before advancing a channel. Failure summaries explain what to inspect and how to retry safely.",
+  "limitations": "Branch protections must be installed separately after all target branches have the required workflow and emergency access is established."
+}

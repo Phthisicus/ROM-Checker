@@ -1,6 +1,6 @@
 services:
   romchecker:
-    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:beta}
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
     build:
       context: .
       args:
@@ -38,7 +38,7 @@ services:
       - ALL
     stop_grace_period: 2m
   rom-storage:
-    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:beta}
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
     restart: unless-stopped
     environment:
       ROMCHECKER_ROLE: storage
@@ -56,7 +56,7 @@ services:
       - ALL
     stop_grace_period: 2m
   signature-updater:
-    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:beta}
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
     restart: unless-stopped
     entrypoint: ["freshclam"]
     command: ["--daemon", "--foreground=true", "--config-file=/etc/clamav/freshclam.conf"]

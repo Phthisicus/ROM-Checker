@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Keep builds on the supported .NET SDK",
+  "description": "Development and release checks consistently select the supported .NET 10 SDK, preventing newer runner SDKs from interrupting delivery."
+}

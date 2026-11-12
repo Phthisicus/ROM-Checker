@@ -3,6 +3,38 @@
 Complete [Connect RomM](Connect-RomM.md) and test a small manual publication first.
 All automation is a deliberate opt-in.
 
+## Real-instance pre-release check
+
+On 2026-11-12, a local development build was tested with RomM 5.4.1 on Linux
+amd64 using disposable synthetic NES files. The check covered the connection,
+manual and automatic imports and publication, ClamAV verification, conflict
+handling, and outage recovery. It did not validate real collections, metadata
+providers, other RomM versions, or backup restoration.
+
+Before deploying, record the exact ROM Checker image digest and RomM version, then
+test on a disposable instance with a small backed-up collection. Use dedicated
+export storage, not an existing RomM library, and leave automatic publication and
+synchronization disabled initially.
+
+1. Connect using a RomM API token and confirm the configured platform mappings.
+2. Import a small collection into ROM Checker, verify it, and review its findings.
+   Preview publication, confirm an eligible file, and check that RomM scans it and
+   the exact-hash metadata link appears. Confirm an ineligible file is held.
+3. Import a selected file from RomM and confirm it arrives as an unchecked local
+   import. Verify it separately; do not assume remote metadata proves safety.
+4. With disposable copies, create a local/remote content conflict. Confirm it is
+   visible and neither copy is automatically overwritten or deleted. Exercise
+   the appropriate explicit conflict resolution.
+5. Test a RomM outage and recovery. Confirm failures are visible and do not become
+   deletion signals; restore the service and retry explicitly.
+6. Only after manual workflows succeed, test opt-in synchronization and publication
+   rules on the small collection. Disable them again before restoring or deleting
+   the disposable environment.
+
+Record failures and sanitized diagnostics without ROM contents, credentials, or
+private paths. A successful fixture or this checklist alone does not establish
+compatibility with every RomM version or deployment.
+
 ## Publication
 
 Select explicit Library files, preview **Publish to RomM…**, review exclusions, and

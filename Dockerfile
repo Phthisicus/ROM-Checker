@@ -16,6 +16,7 @@ RUN node build-info.mjs && npm run build && cp build-info.json dist/build-info.j
 
 FROM mcr.microsoft.com/dotnet/sdk:10.0-noble AS backend
 WORKDIR /src
+COPY global.json ./
 COPY web/server/RomChecker.Web.csproj web/server/
 RUN dotnet restore web/server/RomChecker.Web.csproj
 COPY web/server/ web/server/
@@ -68,6 +69,7 @@ COPY web/engine/ ./web/engine/
 COPY deploy/freshclam.conf /etc/clamav/freshclam.conf
 RUN sed -i 's/\r$//' /etc/clamav/freshclam.conf
 COPY README.md ./README.md
+COPY LICENSE ./LICENSE
 ENV ASPNETCORE_URLS=http://+:8080 \
     ROMCHECKER_ENGINE=/app \
     ROMCHECKER_LIBRARY=/library \

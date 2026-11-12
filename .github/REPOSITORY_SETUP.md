@@ -52,7 +52,7 @@ Keep the README as the project landing page. Use `docs/README.md` as the documen
 
 ## Manual review items
 
-- Select and add a project license. There is currently no `LICENSE` file or license metadata.
+- Review third-party component and asset licenses before publishing a release.
 - Apply the suggested description and topics in the repository's About panel.
 - Upload `assets/brands/social-preview.png` in repository settings.
 - Review the repository's existing visibility and access settings before describing the project as publicly available.
