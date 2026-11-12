@@ -11,14 +11,21 @@ public static class SettingsEndpoints
         {
             name = "ROM Checker", version = build.Version, commit = build.Commit,
             buildNumber = build.BuildNumber, buildAttempt = build.BuildAttempt, channel = build.Channel,
-            builtUtc = build.BuiltUtc, workflowUrl = build.WorkflowUrl, schema,
+            builtUtc = build.BuiltUtc, workflowUrl = build.WorkflowUrl, metadataFormatVersion = build.MetadataFormatVersion, schema,
             library = root, pathBase, platform = OperatingSystem.IsWindows() ? "Windows" : "Linux",
             antivirus = OperatingSystem.IsWindows() ? "Windows Defender" : "ClamAV"
         });
+        api.MapGet("/system", (ReleaseInfo release) => new
+        {
+            system = SystemInformation.Read(), release,
+            paths = new { library = root, data = options.Data, engine, pathBase },
+            updates = new { enabled = UpdateMonitor.Enabled, scheduled = UpdateMonitor.Scheduled }
+        });
         api.MapGet("/diagnostics/build", (BuildIdentity build, DatabaseCompatibility schema) =>
-            Results.File(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { build, schema }, Json.Options),
+            Results.File(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { build, schema, system = SystemInformation.Read() }, Json.Options),
                 "application/json", "romchecker-build-diagnostics.json"));
-        api.MapPost("/updates/check", async (UpdateChecker updates, CancellationToken cancellation) =>
+        api.MapGet("/updates/status", (UpdateMonitor updates) => Results.Ok(updates.Status));
+        api.MapPost("/updates/check", async (UpdateMonitor updates, CancellationToken cancellation) =>
             Results.Ok(await updates.Check(cancellation)));
         api.MapGet("/consoles", () => Results.File(Path.Combine(engine, "web", "engine", "consoles.json"), "application/json; charset=utf-8"));
         api.MapGet("/settings", (Store store) => store.Settings());

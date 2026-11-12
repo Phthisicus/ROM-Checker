@@ -6,6 +6,7 @@
 **/playwright-report/
 **/test-results/
 .env
+.env.romm
 data/
 *.user
 *.tsbuildinfo

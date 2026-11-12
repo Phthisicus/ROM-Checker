@@ -1,7 +1,12 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Formats.Tar;
+using System.IO.Compression;
+using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using RomChecker.Web;
 using RomChecker.Web.Features.Settings;
@@ -33,6 +38,16 @@ try
     File.WriteAllText(path, JsonSerializer.Serialize(identity with { Channel = "stable" }, Json.Options));
     Reject(() => BuildIdentity.Load(path), "Reject channel/version mismatch");
     Check(BuildIdentity.Load(Path.Combine(directory, "absent.json")).Channel == "local", "Source builds are explicitly local");
+    var release = new ReleaseInfo(1, identity.Version, identity.Channel, identity.Commit, null,
+        "Installed release notes.", ["Back up your data."], []);
+    var releasePath = Path.Combine(directory, "release-info.json");
+    File.WriteAllText(releasePath, JsonSerializer.Serialize(release, Json.Options));
+    Check(ReleaseInfo.Load(releasePath, identity).Notes == release.Notes, "Installed notes load offline");
+    Reject(() => release.Validate("1.0.0", identity.Channel, identity.Commit), "Reject notes for another image");
+    Reject(() => (release with { MetadataFormatVersion = 2 }).Validate(identity.Version, identity.Channel, identity.Commit),
+        "Metadata format is independent of database schema");
+    Reject(() => (release with { ReleaseUrl = "https://example.invalid/" }).Validate(identity.Version, identity.Channel, identity.Commit),
+        "Reject external release links");
 
     Check(DatabaseCompatibility.Initialize(directory).Version == 1, "Adopt unversioned schema");
     using (var db = new SqliteConnection($"Data Source={Path.Combine(directory, "romchecker.db")}"))
@@ -71,9 +86,39 @@ try
     Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", "true");
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_USERNAME", "fixture");
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_TOKEN", "fixture-token");
-    Check((await checker.Check(default)).Status == "available", "Registry index, platform config and signed blob path");
+    var available = await checker.Check(default);
+    Check(available.Status == "available" && available.Release?.Notes == "Upcoming release notes.",
+        "Registry index, platform config and bounded release metadata layer");
     Check(registry.DownloadHadNoCredentials, "Do not forward credentials to signed CDN");
+    registry.BadMetadataDigest = true;
+    var badNotes = await checker.Check(default);
+    Check(badNotes.Status == "available" && badNotes.Release is null && badNotes.NotesError is not null,
+        "Invalid notes digest cannot hide a confirmed image update or be accepted");
+    registry.BadMetadataDigest = false;
+    registry.WrongMetadataIdentity = true;
+    Check((await checker.Check(default)).NotesError is not null, "Reject release notes belonging to another image");
+    registry.WrongMetadataIdentity = false;
+
+    var builder = Host.CreateApplicationBuilder();
+    builder.Services.AddSingleton(checker);
+    using var host = builder.Build();
+    var clock = new TestClock();
+    using var monitor = new UpdateMonitor(host.Services.GetRequiredService<IServiceScopeFactory>(), identity,
+        NullLogger<UpdateMonitor>.Instance, clock);
+    Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", null);
+    var requests = registry.Requests;
+    Check((await monitor.Check(default)).Status == "disabled" && requests == registry.Requests, "Cached checks respect opt-in");
+    Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", "true");
+    await monitor.Check(default);
+    requests = registry.Requests;
+    await Task.WhenAll(monitor.Check(default), monitor.Check(default));
+    Check(requests == registry.Requests, "Concurrent checks are shared and rate limited");
+    Check(monitor.Status.LastSuccessUtc == clock.GetUtcNow(), "Successful checks expose their timestamp");
     registry.Fail = true;
+    clock.Advance(TimeSpan.FromMinutes(2));
+    var stale = await monitor.Check(default);
+    Check(stale.Status == "error" && stale.Stale && stale.Result?.Status == "available"
+        && stale.LastSuccessUtc < stale.LastAttemptUtc, "Failed checks retain timestamped stale results, never success");
     try { await checker.Check(default); throw new Exception("Registry failure must not look current"); }
     catch (RequestException ex) { Check(ex.Status == 502, "Explicit update failure status"); }
     Console.WriteLine($"Build identity, schema and update tests: {assertions} assertions passed.");
@@ -93,6 +138,25 @@ sealed class RegistryFixture : HttpMessageHandler
     public int Requests { get; private set; }
     public bool DownloadHadNoCredentials { get; private set; }
     public bool Fail { get; set; }
+    public bool BadMetadataDigest { get; set; }
+    public bool WrongMetadataIdentity { get; set; }
+    private byte[]? savedMetadata;
+    private bool savedWrongIdentity;
+    private byte[] Metadata()
+    {
+        if (savedMetadata is not null && savedWrongIdentity == WrongMetadataIdentity) return savedMetadata;
+        using var output = new MemoryStream();
+        using (var gzip = new GZipStream(output, CompressionMode.Compress, true))
+        using (var tar = new TarWriter(gzip))
+        {
+            var value = new ReleaseInfo(1, "1.3.0-development.143", "development",
+                new string(WrongMetadataIdentity ? 'a' : 'b', 40), null, "Upcoming release notes.", [], []);
+            using var json = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(value, Json.Options));
+            tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "release-info.json") { DataStream = json });
+        }
+        savedWrongIdentity = WrongMetadataIdentity;
+        return savedMetadata = output.ToArray();
+    }
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests++;
@@ -101,6 +165,8 @@ sealed class RegistryFixture : HttpMessageHandler
         if (request.RequestUri!.Host == "pkg-containers.githubusercontent.com")
         {
             DownloadHadNoCredentials = request.Headers.Authorization is null;
+            if (request.RequestUri.AbsolutePath == "/release")
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Metadata()) });
             body = new { config = new { Labels = new Dictionary<string, string>
             {
                 ["org.opencontainers.image.version"] = "1.3.0-development.143",
@@ -117,12 +183,25 @@ sealed class RegistryFixture : HttpMessageHandler
         else
         {
             if (request.Headers.Authorization?.ToString() != "Bearer fixture-registry-token") throw new Exception("Expected scoped registry token");
+            var metadata = Metadata();
+            var digest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(metadata));
+            if (request.RequestUri.AbsolutePath.EndsWith("-metadata"))
+            {
+                body = new { layers = new[] { new { digest, size = metadata.Length,
+                    mediaType = "application/vnd.oci.image.layer.v1.tar+gzip" } } };
+                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
+                    { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") });
+            }
             if (request.RequestUri.AbsolutePath.Contains("/blobs/"))
             {
                 var redirect = new HttpResponseMessage(HttpStatusCode.TemporaryRedirect);
-                redirect.Headers.Location = new Uri("https://pkg-containers.githubusercontent.com/fixture");
+                redirect.Headers.Location = new Uri("https://pkg-containers.githubusercontent.com/"
+                    + (request.RequestUri.AbsolutePath.EndsWith(digest) ? "release" : "fixture"));
+                if (BadMetadataDigest && request.RequestUri.AbsolutePath.EndsWith(digest))
+                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[metadata.Length]) });
                 return Task.FromResult(redirect);
             }
+
             body = request.RequestUri.AbsolutePath.EndsWith("/development")
                 ? (object)new { manifests = new[] { new { digest = "sha256:" + new string('c', 64), platform = new { os = "linux", architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "amd64" } } } }
                 : new { config = new { digest = "sha256:" + new string('d', 64) } };
@@ -132,4 +211,11 @@ sealed class RegistryFixture : HttpMessageHandler
             Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
         });
     }
+}
+
+sealed class TestClock : TimeProvider
+{
+    private DateTimeOffset now = DateTimeOffset.Parse("2026-11-11T12:00:00Z");
+    public override DateTimeOffset GetUtcNow() => now;
+    public void Advance(TimeSpan interval) => now += interval;
 }

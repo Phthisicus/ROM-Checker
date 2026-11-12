@@ -87,42 +87,63 @@ function baselineFor(tags, sha, beta, exclude) {
   return eligible.sort((a, b) => compareVersions(b.name, a.name))[0]?.name ?? null
 }
 function escapeHeading(text) { return text.replace(/[<>\\`*_#[\]]/g, character => '\\' + character) }
-export function renderNotes(plan, digest) {
+export function renderNotes(plan, digest = null) {
   const sections = [
-    ['Highlights', ['feature', 'breaking']],
-    ['Improvements', ['improvement', 'performance']],
-    ['Fixes', ['fix']],
-    ['Security', ['security']],
-    ['Maintenance', ['maintenance']]
+    ['✨ New unlocks — Features', ['feature']],
+    ['⚠️ Breaking changes', ['breaking']],
+    ['⚡ Level-ups — Improvements & performance', ['improvement', 'performance']],
+    ['🛠️ Bug fixes', ['fix']],
+    ['🛡️ Security', ['security']],
+    ['🔧 Behind the scenes — Maintenance', ['maintenance']]
   ]
-  const lines = [`# ROM Checker ${plan.version}`, '',
-    plan.prerelease ? '**Beta prerelease — intended for testing, not production. Back up your data before upgrading.**'
-      : 'A stable release of ROM Checker, with the following changes since the previous stable release.', '']
+  const lines = [`# 🎮 ROM Checker ${plan.version} — Patch notes`, '',
+    plan.branch === 'development' ? '**Development build — experimental and not intended for production. Back up your data before upgrading.**'
+      : plan.prerelease ? '**Beta prerelease — intended for testing, not production. Back up your data before upgrading.**'
+      : '**Stable release — changes since the previous stable release.**', '',
+    plan.branch === 'development' ? 'Welcome to the workshop! Here is what is taking shape for your next ROM-checking session.'
+      : plan.prerelease ? 'Ready for a test run? Explore the changes in this preview and help put the next release through its paces.'
+      : 'Your next session starts here. Check out the latest additions to your ROM-checking loadout.', '']
   for (const [heading, types] of sections) {
     const notes = plan.notes.filter(note => types.includes(note.type))
     if (!notes.length) continue
     lines.push(`## ${heading}`, '')
     for (const note of notes) lines.push(`### ${escapeHeading(note.title)}`, '', note.description.trim(), '')
   }
-  if (!plan.notes.length) lines.push('## Changes', '', 'This release contains the changes listed in the commit history below. No editorial feature summary was supplied.', '')
+  if (!plan.notes.length) lines.push('## 📋 Changes', '', 'Check the session log below for this release\'s commit history. No editorial feature summary was supplied.', '')
   const upgrades = [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))]
   const limitations = [...new Set(plan.notes.map(note => note.limitations?.trim()).filter(Boolean))]
-  lines.push('## Upgrade notes', '',
+  lines.push('## ⬆️ Before you upgrade — Upgrade notes', '', 'Save your progress before the next session.', '',
     'Back up application data, ROM storage, and configuration. Use the same image version for the application, storage service, and signature updater. Rollback may require restoring the matching data backup.', '')
   for (const text of upgrades) lines.push(text, '')
   if (limitations.length) {
-    lines.push('## Known limitations', '')
+    lines.push('## ⚠️ Known limitations', '')
     for (const text of limitations) lines.push(text, '')
   }
-  lines.push('## Container image', '', '```text', `${plan.image}:${plan.version}`, `${plan.image}@${digest}`, '```', '',
-    `Source commit: \`${plan.sha}\``, '', 'The release assets contain the image digest, checksums, and machine-readable release manifest. The registry image includes an SBOM and build provenance.', '',
-    '<details>', '<summary>Commit history</summary>', '')
+  lines.push('## 📦 Container image', '', '```text', `${plan.image}:${plan.version}`, ...(digest ? [`${plan.image}@${digest}`] : []), '```', '',
+    `Source commit: \`${plan.sha}\``, '', 'The registry image includes an SBOM and build provenance. The final image digest is recorded separately after publication.', '',
+    '<details>', '<summary>📜 Session log — Commit history</summary>', '')
   for (const commit of plan.commits.slice(0, 200))
     lines.push(`- ${escapeHeading(commit.subject)} ([${commit.hash.slice(0, 7)}](https://github.com/${plan.repository}/commit/${commit.hash}))`)
   lines.push('', '</details>', '')
-  if (plan.baseline) lines.push(`**Full changelog:** https://github.com/${plan.repository}/compare/${plan.baseline}...${plan.tag}`, '')
-  else lines.push(`**Source:** https://github.com/${plan.repository}/tree/${plan.tag}`, '')
+  if (plan.baseline) lines.push(`**Full changelog:** https://github.com/${plan.repository}/compare/${plan.baseline}...${plan.tag ?? plan.sha}`, '')
+  else lines.push(`**Source:** https://github.com/${plan.repository}/tree/${plan.tag ?? plan.sha}`, '')
   return lines.join('\n')
+}
+export function releaseInfo(plan) {
+  return {
+    metadataFormatVersion: 1, version: plan.version,
+    channel: plan.branch === 'main' ? 'stable' : plan.branch,
+    commit: plan.sha,
+    releaseUrl: plan.branch === 'development'
+      ? `https://github.com/${plan.repository}/commit/${plan.sha}`
+      : `https://github.com/${plan.repository}/releases/tag/${plan.tag}`,
+    notes: renderNotes(plan),
+    upgradeNotes: [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))],
+    limitations: [...new Set(plan.notes.map(note => note.limitations?.trim()).filter(Boolean))]
+  }
+}
+function writeReleaseInfo(plan) {
+  writeFileSync(join(root, 'release-info.json'), JSON.stringify(releaseInfo(plan), null, 2) + '\n')
 }
 function output(name, value) {
   if (process.env.GITHUB_OUTPUT) writeFileSync(process.env.GITHUB_OUTPUT, `${name}=${value}\n`, { flag: 'a' })
@@ -162,6 +183,9 @@ export function run(command, args) {
       notes: notesSince(baseline, sha), fallback: readFileSync(join(root, 'version.txt'), 'utf8').trim(), sha })
     output('version', `${version}-development.${number}`)
     output('image', `ghcr.io/${repository.toLowerCase()}`)
+    writeReleaseInfo({ version: `${version}-development.${number}`, branch: 'development', sha, repository,
+      image: `ghcr.io/${repository.toLowerCase()}`, baseline, prerelease: true,
+      notes: notesSince(baseline, sha), commits: commitsSince(baseline, sha) })
     console.log(`${version}-development.${number}`)
   } else if (command === 'plan') {
     const [branch, sha, repository, directory = '.release', publishedFile] = args
@@ -178,6 +202,7 @@ export function run(command, args) {
       image: `ghcr.io/${repository.toLowerCase()}`, baseline, notes: notesSince(baseline, sha), commits: commitsSince(baseline, sha) }
     mkdirSync(directory, { recursive: true })
     writeFileSync(join(directory, 'release-plan.json'), JSON.stringify(plan, null, 2) + '\n')
+    writeReleaseInfo(plan)
     for (const key of ['version', 'tag', 'image']) output(key, plan[key])
     console.log(JSON.stringify(plan, null, 2))
   } else if (command === 'reserve') {

@@ -54,11 +54,13 @@ Add a uniquely named JSON file under `.github/release-notes/` to each meaningful
 
 Allowed types: `feature`, `improvement`, `fix`, `performance`, `security`, `breaking`, `maintenance`. Title and description are required; upgrade/limitations are optional except that breaking changes **must** include upgrade instructions. Entries are append-only and retained for stable-release aggregation; do not delete them after a beta. Avoid secrets, personal data, unverified claims, and raw technical commit titles as feature descriptions.
 
+Use a friendly, lightly gaming-themed patch-note voice in new entries: describe the actual user benefit first, then add a little personality. The shared template supplies one emoji per section heading and channel-specific introductions for both GitHub and embedded notes. Occasional feature-title emojis are welcome; avoid emoji-heavy sentences, full roleplay, or claims such as "flawless protection." Keep security disclosures, breaking changes, backup/migration instructions, and limitations factual and explicit. Keep versions, image tags, commands, and English Conventional Commit subjects unchanged and emoji-free. Do not rewrite published entries or releases just to change their tone.
+
 The release template renders:
 
-1. Clear stable/beta identity.
+1. Clear stable/beta/development identity and a short gaming-themed introduction.
 2. Main feature highlights and user benefits.
-3. Improvements, fixes, security changes, and maintenance.
+3. Improvements, fixes, security changes, and maintenance, with breaking changes in their own explicit section.
 4. Backup, migration, and upgrade guidance.
 5. Known limitations.
 6. Exact image version, digest, source commit, release assets, and expandable commit history.
@@ -85,11 +87,19 @@ Each published container includes `/app/build-info.json`: application version, D
 
 The baked file is authoritative. `ROMCHECKER_VERSION` and `ROMCHECKER_COMMIT` remain image defaults for external tooling but cannot override `/api/info`, startup logs, or Settings. Missing/invalid container metadata fails startup; source runs without that file are explicitly `0.0.0-local`, build 0. Unversioned local Docker builds default to the same local identity and cannot pass published-image identity smoke checks.
 
-Settings displays build details and offers an authenticated diagnostic JSON download (`/api/diagnostics/build`) containing only build/schema metadata, not settings, credentials, or ROM data. Startup checks adopt existing unversioned SQLite databases as schema 1 without altering their tables or ROM data. `PRAGMA user_version` is checked before application stores/workers start; newer unsupported schema versions fail with backup/compatible-image guidance and are never reset. Future schema changes must add explicit migrations and advance the supported range and baked schema together. An image predating this guard cannot enforce downgrade protection: back up data before upgrades and restore a matching backup when necessary.
+The bottom-left sidebar shows the running version and channel, links to **Settings > System & updates**, and indicates confirmed updates. Collapsed navigation retains an accessible version control; mobile navigation shows the full label. Detailed version and system information are available without Advanced mode. `/api/system` reports the container/process OS, architecture, .NET runtime, uptime snapshot, and configured application paths, not Docker host information. The authenticated diagnostic JSON download (`/api/diagnostics/build`) includes only build/schema/runtime metadata, not settings, credentials, storage paths, or ROM data.
+
+The pipeline generates `release-info.json` from the same release plan as published notes. Images include `/app/release-info.json` and `/app/release-notes.md`, so installed notes work offline. `metadataFormatVersion` describes the metadata contract independently of `schemaVersion`, which remains the database compatibility marker. Version/channel/commit mismatches or unsupported metadata formats fail published-container startup. The checked-in `release-info.json` is a local-build placeholder; do not commit generated publication metadata. Custom published image builds must generate matching metadata through the release planner.
+
+Startup checks adopt existing unversioned SQLite databases as schema 1 without altering their tables or ROM data. `PRAGMA user_version` is checked before application stores/workers start; newer unsupported schema versions fail with backup/compatible-image guidance and are never reset. Future schema changes must add explicit migrations and advance the supported range and baked schema together. Equal schema numbers do not guarantee safe upgrades or rollback: review upgrade instructions and limitations in the release notes. An image predating this guard cannot enforce downgrade protection.
 
 ## Channel-aware update notifications
 
-Update checks are disabled by default and never install software. Set `ROMCHECKER_CHECK_UPDATES=true` on the application server, then use **Settings > Check for updates**. There is no background polling. The server reads this package's GHCR `development`, `beta`, or `latest` image metadata for the matching channel and CPU architecture. It compares semantic application versions, not build counters alone, refuses cross-channel results/conflicting identities, and reports a schema warning when the candidate schema differs. A channel alias older than the running image does not trigger a downgrade.
+Update checks are disabled by default and never install software. Set `ROMCHECKER_CHECK_UPDATES=true` on the application server, then use **Settings > System & updates > Check for updates**. Also set `ROMCHECKER_SCHEDULED_UPDATES=true` to check shortly after startup (5-60 seconds jitter) and every 5.5-6.5 hours thereafter. Browser status polling reads the server cache only; it does not contact the registry. Checks share an in-memory cache across browser sessions and are limited to once per minute, including failures; restarting clears the cache. Errors retain the timestamped last successful result and mark it stale, never "up to date."
+
+The server reads this package's GHCR `development`, `beta`, or `latest` image metadata for the baked channel and CPU architecture. It compares semantic application versions, not build counters alone, refuses cross-channel results/conflicting identities, and reports a schema warning when the candidate schema differs. A channel alias older than the running image does not trigger a downgrade. Switching channels requires explicitly deploying another channel image; runtime environment variables do not change the baked channel.
+
+Each published version also has a small scratch companion image at `<version>-metadata` in the same GHCR package. Its only layer contains `release-info.json`; it is data, never executed. Publication verifies its contents and refuses to replace conflicting metadata on retries before advancing channel aliases. This provides development release notes without creating development GitHub releases. The checker verifies the layer digest, bounds compressed/decompressed data to 2 MiB, and validates version/channel/source identity. Notes failures do not hide confirmed image updates: they produce a separate warning. Release notes are displayed as escaped text, never trusted HTML.
 
 Public package checks need no credentials. For this private package, configure `ROMCHECKER_UPDATE_USERNAME` and a server-only `ROMCHECKER_UPDATE_TOKEN` with package-read access (and required organization authorization, if applicable). These credentials are never sent to the browser or exported in diagnostics. Checks contact `ghcr.io` and its signed `pkg-containers.githubusercontent.com` blob endpoint; no ROM data is sent. Network/authentication/invalid-metadata failures are explicit errors, not an "up to date" result. Deployments without outbound access can leave checks disabled.
 
@@ -105,6 +115,7 @@ Required CI
   -> publish immutable image with SBOM/provenance
   -> verify published digest and runtime
   -> assemble release notes and checksummed assets
+  -> publish and verify immutable companion metadata image
   -> upload draft release assets, then publish release
   -> update beta/latest alias only for current branch head
 ```

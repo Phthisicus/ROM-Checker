@@ -1,6 +1,6 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { describe, expect, it, vi } from 'vitest'
-import type { Settings } from '../../api'
+import type { Job, Settings } from '../../api'
 import CatalogView, { finding, type CatalogEntry, type CatalogPage } from './CatalogView'
 
 const entry: CatalogEntry = {
@@ -123,6 +123,25 @@ describe('collection browser', () => {
     expect(screen.getByRole('table')).toBeInTheDocument()
     expect(screen.queryByRole('columnheader', { name: 'Security' })).not.toBeInTheDocument()
   })
+  it('shows a retryable load error instead of presenting a failed request as an empty collection', async () => {
+    let failed = false
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === '/api/romm/links') return Response.json([])
+      if (path.startsWith('/api/catalog?') && !failed) {
+        failed = true
+        throw new Error('Catalog service unavailable.')
+      }
+      if (path.startsWith('/api/catalog?')) return Response.json(catalog)
+      throw new Error(`Unexpected request ${path}`)
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(<CatalogView activity={vi.fn()} fail={vi.fn()} imports={vi.fn()} jobs={[]} progress={null} changed={vi.fn().mockResolvedValue(undefined)} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Catalog service unavailable.')
+    expect(screen.queryByText('No ROM files yet')).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Retry loading collection' }))
+    expect(await screen.findByRole('button', { name: entry.fileName })).toBeInTheDocument()
+    expect(screen.queryByRole('alert')).not.toBeInTheDocument()
+  })
   it('defaults to cover grid without requiring metadata, with safe artwork and details', async () => {
     const { fetcher } = setup({ linked: true })
     await screen.findByRole('button', { name: entry.fileName })
@@ -171,10 +190,28 @@ describe('collection browser', () => {
     fireEvent.click(within(dialog).getByRole('button', { name: 'Review explicit approval' }))
     const input = within(dialog).getByLabelText('Approval reason')
     fireEvent.change(input, { target: { value: 'Review in progress' } })
-    const before = fetcher.mock.calls.filter(([path]) => path === '/api/catalog/' + encodeURIComponent(entry.id)).length
-    rendered.rerender(<CatalogView {...props} jobs={[...props.jobs]} />)
-    await waitFor(() => expect(fetcher.mock.calls.filter(([path]) => path === '/api/catalog/' + encodeURIComponent(entry.id)).length).toBeGreaterThan(before))
+    const fileRequests = () => fetcher.mock.calls.filter(([path]) => path === '/api/catalog/' + encodeURIComponent(entry.id)).length
+    const catalogRequests = () => fetcher.mock.calls.filter(([path]) => typeof path === 'string' && path.startsWith('/api/catalog?')).length
+    const beforeFileRequests = fileRequests()
+    const beforeCatalogRequests = catalogRequests()
+    const job: Job = { id: 'check-1', action: 'scan', status: 'running', created: '2026-10-27T12:00:00Z', request: {}, settings }
+    rendered.rerender(<CatalogView {...props} jobs={[job]} />)
+    await waitFor(() => {
+      expect(fileRequests()).toBeGreaterThan(beforeFileRequests)
+      expect(catalogRequests()).toBeGreaterThan(beforeCatalogRequests)
+    })
     expect(input).toHaveValue('Review in progress')
     expect(screen.getByRole('dialog')).toBe(dialog)
+    const afterStatusChange = fileRequests()
+    const afterCatalogStatusChange = catalogRequests()
+    rendered.rerender(<CatalogView {...props} jobs={[{ ...job }]} />)
+    expect(fileRequests()).toBe(afterStatusChange)
+    expect(catalogRequests()).toBe(afterCatalogStatusChange)
+    rendered.rerender(<CatalogView {...props} jobs={[{ ...job, status: 'completed' }]} />)
+    await waitFor(() => {
+      expect(fileRequests()).toBeGreaterThan(afterStatusChange)
+      expect(catalogRequests()).toBeGreaterThan(afterCatalogStatusChange)
+    })
+    expect(input).toHaveValue('Review in progress')
   })
 })

@@ -1,0 +1,6 @@
+{
+  "type": "improvement",
+  "title": "A little more personality in your patch notes",
+  "description": "Check out your next ROM-checking loadout with gaming-themed introductions and emoji section headings. GitHub releases and embedded notes share the same style, while security details, breaking changes and upgrade requirements stay clear and explicit.",
+  "limitations": "The new style applies to newly generated notes. Previously published releases and image-baked notes remain unchanged."
+}

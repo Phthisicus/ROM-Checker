@@ -1,15 +1,14 @@
 import { FolderOpen, LoaderCircle, Save, ShieldAlert } from 'lucide-react'
 import { useEffect, useState, type FormEvent } from 'react'
-import { api, url, type Info, type Settings, type UpdateResult } from '../../api'
+import { api, type Info, type Settings, type UpdateStatus } from '../../api'
 import { Modal } from '../../components/Presentation'
+import SystemUpdates from './SystemUpdates'
 
-type Props = { advanced?: boolean; info?: Info; fail: (error: unknown) => void; saved: () => void }
-export default function SettingsView({ advanced, info, fail, saved }: Props) {
+type Props = { advanced?: boolean; info?: Info; fail: (error: unknown) => void; saved: () => void; onUpdate?: (status: UpdateStatus) => void; updateStatus?: UpdateStatus }
+export default function SettingsView({ advanced, info, fail, saved, onUpdate, updateStatus }: Props) {
   const [settings, setSettings] = useState<Settings>()
   const [consoles, setConsoles] = useState<{ Key: string; Name: string }[]>([])
   const [pending, setPending] = useState(false)
-  const [checking, setChecking] = useState(false)
-  const [updateResult, setUpdateResult] = useState<UpdateResult>()
   const [integrations, setIntegrations] = useState<{ virusTotal: boolean; malwareBazaar: boolean; approvedSmbHosts: string[] }>()
   const [browser, setBrowser] = useState(false)
   const [folders, setFolders] = useState<{ path: string; folders: { name: string; path: string; fullPath: string }[] }>()
@@ -21,11 +20,6 @@ export default function SettingsView({ advanced, info, fail, saved }: Props) {
   async function browse(path = '.') {
     try { setFolders(await api(`/folders?path=${encodeURIComponent(path)}`)); setBrowser(true) } catch (error) { fail(error) }
   }
-  async function checkUpdates() {
-    setChecking(true); setUpdateResult(undefined)
-    try { setUpdateResult(await api<UpdateResult>('/updates/check', { method: 'POST' })) }
-    catch (error) { fail(error) } finally { setChecking(false) }
-  }
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setSettings(previous => previous ? { ...previous, [key]: value } : previous)
   async function submit(event: FormEvent) {
     event.preventDefault(); setPending(true)
@@ -36,22 +30,7 @@ export default function SettingsView({ advanced, info, fail, saved }: Props) {
   const toggle = (key: keyof Settings, title: string, text: string) => <label className="toggle-row" key={key}><span><strong>{title}</strong><small>{text}</small></span><input type="checkbox" role="switch" checked={settings[key] === true} onChange={e => update(key, e.target.checked)} /></label>
   const number = (key: keyof Settings, title: string, min: number, max: number) => <label key={key}>{title}<input type="number" min={min} max={max} required value={String(settings[key])} onChange={e => update(key, Number(e.target.value))} /></label>
   return <form onSubmit={submit}>
-    <section className="panel"><h2>Version & updates</h2>
-      <dl className="server-info">
-        <div><dt>Application version</dt><dd>{info?.version}</dd></div>
-        <div><dt>Build / attempt</dt><dd>{info?.buildNumber ?? 'Local'} / {info?.buildAttempt ?? '-'}</dd></div>
-        <div><dt>Channel</dt><dd>{info?.channel ?? 'Local'}</dd></div>
-        {advanced && <><div><dt>Built (UTC)</dt><dd>{info?.builtUtc ?? 'Local source build'}</dd></div>
-        <div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div>
-        <div><dt>Database schema</dt><dd>{info?.schema ? `${info.schema.version} (supported ${info.schema.minimumSupported}-${info.schema.maximumSupported})` : 'Unavailable'}</dd></div></>}
-      </dl>
-      <p className="small">Back up application data and storage before upgrading. An older image may require restoring a matching database backup. Containers predating schema checks cannot enforce downgrade protection.</p>
-      <div className="row wrap"><button type="button" disabled={checking} onClick={checkUpdates}>{checking ? 'Checking...' : 'Check for updates'}</button>
-        <a href={url('/diagnostics/build')} download>Download build diagnostics</a>
-        {info?.workflowUrl && <a href={info.workflowUrl} target="_blank" rel="noreferrer">Build workflow</a>}</div>
-      <p className="small muted">Opt-in checks contact GitHub Container Registry only when requested, compare this channel only, and never deploy or change data.</p>
-      {updateResult && <div role="status" className={`notice ${updateResult.schemaCompatible === false ? 'error' : updateResult.status === 'available' ? 'success' : 'subtle'}`}><span>{updateResult.message}{updateResult.version && ` Version ${updateResult.version} · Build ${updateResult.buildNumber}`}</span></div>}
-    </section>
+    <SystemUpdates info={info} fail={fail} onUpdate={onUpdate} updateStatus={updateStatus} />
     <section className="panel"><h2>Default verification policy</h2><p>Choose the checks used by new operations. Advanced mode lets you adjust individual checks for one run.</p>
       {toggle('defenderScan', `${info?.antivirus ?? 'Antivirus'} scanning`, 'Recommended. Incomplete protection holds affected working copies for review.')}
       {toggle('autoDat', 'Automatic DAT references', 'Download console reference lists; ROM files are not uploaded.')}

@@ -1,0 +1,7 @@
+{
+  "type": "improvement",
+  "title": "Explore clearer documentation and a combined RomM deployment",
+  "description": "A concise project overview links to installation, verification, storage, backup, and troubleshooting guides. An optional Docker Compose example runs ROM Checker and RomM together with a dedicated export folder and step-by-step API token setup.",
+  "upgrade": "Existing deployments are unchanged. The combined example is intended for a new stack; back up and explicitly migrate existing exports before changing their mount.",
+  "limitations": "The example pins RomM 5.4.1. Deployment configuration and upstream token instructions have been reviewed, but a live end-to-end RomM compatibility test remains outstanding."
+}

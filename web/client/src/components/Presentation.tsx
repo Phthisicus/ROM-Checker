@@ -1,24 +1,21 @@
-import { FolderOpen, LoaderCircle, X } from 'lucide-react'
-import { useEffect, useRef, type ReactNode } from 'react'
+import { FolderOpen, LoaderCircle } from 'lucide-react'
+import { type ReactNode } from 'react'
 import { label, type Job, type Progress } from '../api'
 import { actions } from '../features/jobs/actions'
+import { Dialog } from '../design-system/Dialog'
+import { EmptyState, StatusBadge } from '../design-system/components'
 
 export function Badge({ value }: { value: string }) {
   const tone = /failed|errors|malicious|suspicious|quarantine|corrupt|threat|interrupted/i.test(value) ? 'danger'
     : /warning|unverified|unknown|incomplete|disabled|cancel/i.test(value) ? 'warning'
       : /completed|original|verified|clean|valid|moved/i.test(value) ? 'success' : 'neutral'
-  return <span className={`badge ${tone}`}>{label(value || 'Unknown')}</span>
+  return <StatusBadge tone={tone}>{label(value || 'Unknown')}</StatusBadge>
 }
-export function Modal({ title, children, close, drawer = false }: { title: string; children: ReactNode; close: () => void; drawer?: boolean }) {
-  const dialog = useRef<HTMLDialogElement>(null)
-  useEffect(() => { const node = dialog.current!; node.showModal(); return () => node.close() }, [])
-  return <dialog ref={dialog} className={drawer ? 'file-drawer' : undefined} onCancel={event => { event.preventDefault(); close() }} aria-label={title}>
-    <div className="dialog-heading"><h2>{title}</h2><button className="icon-button" aria-label="Close dialog" onClick={close}><X size={20} /></button></div>
-    {children}
-  </dialog>
+export function Modal({ title, children, close, drawer = false, closeDisabled = false }: { title: string; children: ReactNode; close: () => void; drawer?: boolean; closeDisabled?: boolean }) {
+  return <Dialog title={title} onClose={close} variant={drawer ? 'drawer' : 'dialog'} closeDisabled={closeDisabled}>{children}</Dialog>
 }
 export function Empty({ title, children }: { title: string; children: ReactNode }) {
-  return <div className="empty"><FolderOpen size={38} strokeWidth={1.3} /><h3>{title}</h3><p>{children}</p></div>
+  return <EmptyState title={title} icon={<FolderOpen size={32} strokeWidth={1.5} />}>{children}</EmptyState>
 }
 export function ProgressCard({ job, progress }: { job: Job; progress?: Progress | null }) {
   return <div className="progress-card">

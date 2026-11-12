@@ -4,6 +4,7 @@ COPY web/client/package*.json ./
 RUN npm ci --no-fund --no-audit
 COPY web/client/ ./
 COPY .github/release-tools/build-info.mjs ./build-info.mjs
+COPY release-info.json ./release-info.json
 ARG VERSION=0.0.0-local
 ARG REVISION=development
 ARG BUILD_NUMBER=0
@@ -19,6 +20,9 @@ COPY web/server/RomChecker.Web.csproj web/server/
 RUN dotnet restore web/server/RomChecker.Web.csproj
 COPY web/server/ web/server/
 RUN dotnet publish web/server/RomChecker.Web.csproj -c Release -o /out --no-restore /p:UseAppHost=false
+
+FROM scratch AS release-metadata
+COPY --from=frontend /src/release-info.json /release-info.json
 
 FROM mcr.microsoft.com/dotnet/aspnet:10.0-noble AS runtime
 ARG VERSION=0.0.0-local
@@ -38,6 +42,7 @@ LABEL org.opencontainers.image.title="ROM Checker" \
       io.romchecker.build-attempt="${BUILD_ATTEMPT}" \
       io.romchecker.channel="${CHANNEL}" \
       io.romchecker.workflow-url="${WORKFLOW_URL}" \
+      io.romchecker.metadata-format-version="1" \
       io.romchecker.schema-version="1"
 USER root
 RUN apt-get update \
@@ -56,6 +61,8 @@ WORKDIR /app
 COPY --from=backend /out/ ./
 COPY --from=frontend /src/dist/ ./web/client/dist/
 COPY --from=frontend /src/build-info.json ./build-info.json
+COPY --from=frontend /src/release-info.json ./release-info.json
+COPY --from=frontend /src/release-notes.md ./release-notes.md
 COPY RomSorter.ps1 ./
 COPY web/engine/ ./web/engine/
 COPY deploy/freshclam.conf /etc/clamav/freshclam.conf
