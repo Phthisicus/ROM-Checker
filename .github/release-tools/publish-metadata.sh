@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+source "$(dirname "$0")/registry-retry.sh"
 tag="${IMAGE:?}:${VERSION:?}-metadata"
 name="romchecker-metadata-${GITHUB_RUN_ID:?}-${GITHUB_RUN_ATTEMPT:?}"
 directory="$(mktemp -d)"
@@ -9,12 +10,12 @@ cleanup() {
   rmdir "$directory"
 }
 trap cleanup EXIT
-docker pull "${IMAGE}:${VERSION}"
+registry_retry docker pull "${IMAGE}:${VERSION}"
 docker run --rm --entrypoint cat "${IMAGE}:${VERSION}" /app/release-info.json > "$directory/expected.json"
 jq -e --arg version "$VERSION" --arg commit "${SOURCE_SHA:?}" --arg channel "${CHANNEL:?}" \
   '.version == $version and .commit == $commit and .channel == $channel and .metadataFormatVersion == 1' \
   "$directory/expected.json" >/dev/null
-if docker buildx imagetools inspect "$tag" >/dev/null 2>"$directory/inspect-error"; then
+if registry_retry docker buildx imagetools inspect "$tag" >/dev/null 2>"$directory/inspect-error"; then
   echo "Verifying existing immutable release metadata."
 elif grep -Eqi 'manifest unknown|not found' "$directory/inspect-error"; then
   # A retry must reuse the notes baked into the immutable application image.
@@ -28,7 +29,7 @@ else
   cat "$directory/inspect-error" >&2
   exit 1
 fi
-docker pull "$tag"
+registry_retry docker pull "$tag"
 docker create --name "$name" "$tag" /unused >/dev/null
 docker cp "$name:/release-info.json" "$directory/release-info.json"
 cmp "$directory/expected.json" "$directory/release-info.json"

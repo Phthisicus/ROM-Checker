@@ -30,6 +30,8 @@ The `Required checks` job fails unless every gate succeeds:
 
 Container readiness probes tolerate transient refused/reset connections for up to 60 seconds. A stopped container fails immediately with startup logs; a running container that never serves a successful health response fails at the deadline. CI tests both storage readiness inside its container and application readiness through the published host port.
 
+On PRs, checkout uses GitHub's proposed merge commit. The container job plans the target channel's release metadata from that commit, stamps release versions where applicable, builds without publishing, and checks image, frontend and runtime identity. This is a preview: the final merge SHA, available tags and resulting version can change before delivery.
+
 Container and dependency scanners block fixable **HIGH/CRITICAL** vulnerabilities; unfixed operating-system/library findings are not blockers in this initial policy. Review scan output instead of treating a passing gate as a guarantee of safety. Do not blanket-disable scanners to release. Any future exception must identify the CVE, justification, owner, and expiry and be reviewed like code. Trivy database/network errors fail the check rather than bypassing it.
 
 No publishing credentials are supplied to PR workflows. Do not change these jobs to `pull_request_target` or execute untrusted PR code with write credentials. Delivery gets publication permissions only after reusable CI succeeds. There is no publishing trigger for feature branches or tags.
@@ -113,16 +115,18 @@ Required CI
   -> build candidate (or reuse existing exact-version image)
   -> vulnerability and runtime/version checks
   -> publish immutable image with SBOM/provenance
-  -> verify published digest and runtime
+  -> verify published digest and runtime, and scan that digest
   -> assemble release notes and checksummed assets
   -> publish and verify immutable companion metadata image
-  -> upload draft release assets, then publish release
+  -> upload draft release assets, publish release, and verify its assets and checksums
   -> update beta/latest alias only for current branch head
 ```
 
 An immutable tag is reserved **after CI** and before the image build. A failed delivery can therefore leave a reserved Git tag, an image, or a draft release without a published GitHub release. This is intentional: rerunning that delivery reuses the version, checks source labels, reuses the image, and finishes the transaction. Fix source errors in a new commit; the new commit gets a new version. Never overwrite an image with different bytes under an existing version.
 
 An already published release is accepted on retry only if its source commit and image digest match. Published release assets are not replaced. Draft asset uploads are retriable. Channel aliases update from the exact digest, never an unverified local tag. Old-run retries cannot move a channel alias back past a newer branch head or mark an old stable release as latest.
+
+Registry reads retry transient network, throttling and server errors up to three times. Pushes are not blindly retried: a failed push might already have published an immutable tag. Rerun the delivery so it first checks whether the version exists. A delivery summary lists stage outcomes, known image/digest and alias state; a failed step can have published an artifact despite reporting failure. A release can be public even if subsequent verification or alias update fails.
 
 GitHub Actions serializes release deliveries across beta and main. It does not cancel the running delivery, but GitHub retains only the **newest pending run** in a concurrency group. Rapid pushes can therefore be coalesced: the next release contains intervening changes, not necessarily one release per intermediate push. Wait for the current delivery before another release promotion if each must have its own release.
 
@@ -147,15 +151,26 @@ Preview the provided setup:
 node .\.github\release-tools\protect-branches.mjs
 ```
 
-Apply it only after the workflows are installed:
+Before enforcing administrators, establish and test emergency access with an account that can administer this repository: confirm account recovery and a secure authentication method, and verify that account can inspect and temporarily change branch protection. Record the responsible maintainer and recovery process outside the repository. In an emergency, have that administrator temporarily relax only the necessary rule, record the change, use a reviewed PR where possible, and restore and verify protection immediately afterward. Admin enforcement is not a substitute for account recovery; do not apply it until this procedure is established.
+
+The preview checks Actions permission, an active workflow, rulesets, existing branch protection, and the CI file on **all three branches**. An API permission error is a blocker, not evidence that no rule exists. Review organization rulesets and the actual `Required checks` run on each branch manually as well; the script cannot validate their effectiveness. It refuses to overwrite protection or proceed when it sees existing repository rulesets. Previously protected branches may remain in place if their settings include the required baseline; a protected target is never overwritten.
+
+Apply one branch at a time only after preview succeeds and emergency access is established:
 
 ```powershell
-node .\.github\release-tools\protect-branches.mjs --apply
+node .\.github\release-tools\protect-branches.mjs --apply --branch development --confirm-emergency-access
+# Verify, then repeat for beta and main.
 ```
 
-It targets `Phthisicus/ROM-Checker` by default; set `GITHUB_REPOSITORY=owner/repo` to change the target. It refuses to overwrite an existing protection policy. It fails explicitly for unsupported plans or insufficient permissions, potentially after configuring an earlier branch; inspect each branch before retrying.
+It targets `Phthisicus/ROM-Checker` by default; set `GITHUB_REPOSITORY=owner/repo` to change the target. The flag is an operator attestation, not an automated emergency-access test. Ensure nobody else changes protection during the preview/apply window; the API update is not an atomic create-if-absent operation.
 
-**Current repository limitation:** GitHub reports that protection/rulesets on this private repository require GitHub Pro (or a plan that supports private-repository protection). The workflows cannot prevent a person from merging failed PRs or pushing directly without platform protection. Publication itself still waits for passing CI. Do not make the repository public merely to work around this limitation.
+The current installation cannot read or configure branch protection or Actions permissions, and `main` does not yet contain this CI workflow. Until an authorized administrator installs and verifies protections, workflows alone cannot prevent direct pushes or merging a failed PR. Publication still waits for CI. Do not change repository visibility merely to work around plan restrictions.
+
+GitHub merge queues require `merge_group` checks and a supported plan/ruleset; availability and administration could not be verified with the current installation. Do not enable a queue with this workflow: promotion policy is checked on PR events, not merge groups. Instead require **up-to-date branches** (`strict: true`) on all three branches. Update the PR branch when the target changes, wait for a fresh `Required checks` result on the merge commit, and merge only while GitHub shows it up to date. A queue can be reconsidered after implementing and testing `merge_group` policy and CI for beta and main.
+
+Promotion branches are themselves protected, so GitHub's **Update branch** button may be unable to push directly to them. To bring `development` up to date with `beta`, open a `beta` → `development` PR with a Conventional Commit title such as `chore: sync beta history`; merge it after checks pass. To bring `beta` up to date with `main`, first merge a `main` → `development` PR, then promote `development` → `beta`. If `development` also lacks the latest `beta` merge commit, sync `beta` → `development` first. Finally promote `beta` → `main`. Resolve conflicts and include release notes where required; never bypass protection or squash these history-sync merges. This preserves the allowed promotion sources and ancestry without directly pushing to a protected branch.
+
+After each branch is protected, use disposable PRs to verify that pending and failed `Required checks` block merging and passing checks permit the intended promotion. Verify resolved conversations, blocked direct pushes/force pushes/deletion and administrator enforcement. Do not claim enforcement based solely on a successful API response. Separately exercise a delivery retry and a controlled failed delivery in a safe test repository; confirm immutable artifact reuse and that the alias does not advance. Never deliberately fail a production release to perform this test.
 
 The default branch's workflow and note files must reach main for normal repository configuration discovery, including Dependabot and the PR template. Release publishing begins when these workflows are pushed to beta/main; merely adding them locally creates no releases.
 
@@ -177,6 +192,14 @@ docker compose ps
 ```
 
 Use the same image reference for all Compose services. Check health and the application version before resuming imports. For rollback, select the previous exact version and restore a matching data backup if a migration is not backward compatible. Do not run `docker compose down -v`; it deletes persistent data. `beta` and `latest` are convenient moving aliases, not immutable rollback references.
+
+### Recovery from partial publication
+
+1. Stop promotions and inspect the failed run's summary, logs and `release-record-*` artifact. Record the source SHA, reserved Git tag, image and companion metadata tags, release draft/publication state, digest and current channel alias. Check the registry and GitHub directly; a failed network operation may have succeeded remotely.
+2. If the failure was transient, rerun the same delivery. It checks the reserved tag and existing image identity, rescans and reuses the image, and verifies metadata before publishing or moving an alias. Do not delete, repoint or overwrite immutable artifacts. If an artifact conflicts, stop and investigate manually.
+3. If source or scan findings require a change, submit a new PR through the normal branch policy. Leave the incomplete artifacts identifiable; do not automatically roll back the branch or database. A public release whose verification or alias update failed remains a partially delivered release until reconciled.
+4. To switch channels or recover a deployment, first stop application activity and take consistent backups of application data (including SQLite databases and any WAL files), ROM storage and configuration. Record the currently deployed image digest and confirm backup restoration works. Review both versions' upgrade and schema compatibility guidance.
+5. Set `ROMCHECKER_IMAGE` to the chosen channel's exact verified version or digest, use the same reference for every service, and run the manual Compose commands above. Check health, authentication, version and data before resuming activity. An older image may require restoring its matching data backup; schema numbers alone do not prove rollback is safe. Changing a channel alias or environment channel does not update an already running installation.
 
 Images initially target Linux amd64. Architecture expansion and unattended server rollout require their own tested deployment policy.
 

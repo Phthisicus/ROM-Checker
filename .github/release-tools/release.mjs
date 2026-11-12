@@ -1,4 +1,5 @@
 import { execFileSync } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { mkdirSync, readFileSync, readdirSync, writeFileSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -256,13 +257,33 @@ export function run(command, args) {
       const current = JSON.parse(readFileSync(join(directory, 'release-manifest.json'), 'utf8'))
       if (manifest.sha !== plan.sha || manifest.digest !== current.digest) throw new Error('Published release assets are immutable.')
       console.log('Release already published with the same commit and image digest.')
-      return
     }
-    gh('release', 'upload', plan.tag, '--repo', plan.repository, '--clobber',
-      ...['release-manifest.json', 'image-digest.txt', 'SHA256SUMS'].map(name => join(directory, name)))
-    const head = JSON.parse(gh('api', `repos/${plan.repository}/git/ref/heads/${plan.branch}`)).object.sha
-    gh('release', 'edit', plan.tag, '--repo', plan.repository, '--draft=false', `--prerelease=${plan.prerelease}`,
-      `--latest=${!plan.prerelease && head === plan.sha}`, '--notes-file', join(directory, 'release-notes.md'))
+    if (!release || release.draft) {
+      gh('release', 'upload', plan.tag, '--repo', plan.repository, '--clobber',
+        ...['release-manifest.json', 'image-digest.txt', 'SHA256SUMS'].map(name => join(directory, name)))
+      const head = JSON.parse(gh('api', `repos/${plan.repository}/git/ref/heads/${plan.branch}`)).object.sha
+      gh('release', 'edit', plan.tag, '--repo', plan.repository, '--draft=false', `--prerelease=${plan.prerelease}`,
+        `--latest=${!plan.prerelease && head === plan.sha}`, '--notes-file', join(directory, 'release-notes.md'))
+    }
+    release = JSON.parse(gh('api', `repos/${plan.repository}/releases/tags/${plan.tag}`))
+    if (release.draft || release.prerelease !== plan.prerelease) throw new Error('Published release status does not match the plan.')
+    const assets = {}
+    for (const name of ['release-manifest.json', 'image-digest.txt', 'SHA256SUMS']) {
+      const asset = release.assets.find(item => item.name === name)
+      if (!asset) throw new Error(`Published release is missing ${name}.`)
+      // gh() trims output, so restore the trailing newline present in these generated assets.
+      assets[name] = gh('api', `repos/${plan.repository}/releases/assets/${asset.id}`, '-H', 'Accept: application/octet-stream') + '\n'
+    }
+    const manifest = JSON.parse(assets['release-manifest.json'])
+    const current = JSON.parse(readFileSync(join(directory, 'release-manifest.json'), 'utf8'))
+    if (manifest.sha !== plan.sha || manifest.digest !== current.digest
+      || assets['image-digest.txt'] !== `${plan.image}@${current.digest}\n`)
+      throw new Error('Published release identity does not match the verified image.')
+    for (const name of ['release-manifest.json', 'image-digest.txt']) {
+      const hash = createHash('sha256').update(assets[name]).digest('hex')
+      if (!assets.SHA256SUMS.split('\n').includes(`${hash}  ${name}`))
+        throw new Error(`Published release checksum does not match ${name}.`)
+    }
   } else {
     throw new Error('Usage: release.mjs validate [base] | development sha owner/repo build-number | plan branch sha owner/repo [directory] [published-tags.txt] | reserve/stamp/publish plan.json | notes plan.json digest')
   }
