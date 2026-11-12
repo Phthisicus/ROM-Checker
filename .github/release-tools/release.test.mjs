@@ -1,10 +1,10 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { execFileSync, spawnSync } from 'node:child_process'
-import { copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
-import { calculateVersion, compareVersions, parseVersion, renderNotes, validateNote } from './release.mjs'
+import { calculateVersion, compareVersions, parseVersion, releaseInfo, renderNotes, validateNote } from './release.mjs'
 import { buildInfo } from './build-info.mjs'
 
 const sha = 'a'.repeat(40)
@@ -86,6 +86,63 @@ test('promotion policy accepts feature work and same-repository promotions, reje
   assert.notEqual(run('main', 'feature/test', 'feat: bypass beta testing'), 0)
   assert.notEqual(run('beta', 'development', 'Promote external fork', 'attacker/repo'), 0)
   assert.notEqual(run('development', 'feature/test', 'updates'), 0)
+})
+test('embedded metadata carries channel-specific notes and upgrade requirements without a circular image digest', () => {
+  const plan = { ...input, version: '1.3.0', branch: 'main', tag: 'v1.3.0', repository: 'Phthisicus/ROM-Checker',
+    image: 'ghcr.io/phthisicus/rom-checker', baseline: null,
+    notes: [{ ...feature, upgrade: 'Back up before deploying.', limitations: 'Requires shared storage.' }], commits: [] }
+  const stable = releaseInfo(plan)
+  assert.equal(stable.channel, 'stable')
+  assert.deepEqual(stable.upgradeNotes, ['Back up before deploying.'])
+  assert.deepEqual(stable.limitations, ['Requires shared storage.'])
+  assert.ok(!stable.notes.includes('@null'))
+  assert.ok(!stable.notes.includes('@sha256:'))
+  const development = releaseInfo({ ...plan, branch: 'development', version: '1.3.0-development.142', tag: null })
+  assert.equal(development.channel, 'development')
+  assert.ok(development.notes.includes('Development build'))
+  assert.equal(development.releaseUrl, `https://github.com/Phthisicus/ROM-Checker/commit/${sha}`)
+})
+test('metadata publication reuses image-baked notes and refuses conflicting immutable companions', () => {
+  const directory = mkdtempSync(join(tmpdir(), 'romchecker-metadata-tests-'))
+  try {
+    const docker = join(directory, 'docker')
+    const expected = '{"version":"1.3.0","commit":"' + sha + '","channel":"stable","metadataFormatVersion":1,"notes":"Image-baked notes"}\n'
+    writeFileSync(join(directory, 'expected.json'), expected)
+    writeFileSync(join(directory, 'release-info.json'), '{"notes":"A regenerated plan must not replace image-baked notes"}')
+    writeFileSync(docker, `#!${process.execPath}
+import { appendFileSync, copyFileSync, readFileSync, writeFileSync } from 'node:fs'
+const args = process.argv.slice(2)
+appendFileSync(process.env.MOCK_LOG, JSON.stringify(args) + '\\n')
+if (args[0] === 'run') process.stdout.write(readFileSync(process.env.MOCK_EXPECTED))
+if (args[0] === 'cp') {
+  if (process.env.MOCK_CONFLICT === 'true') writeFileSync(args[2], '{"notes":"conflicting notes"}')
+  else copyFileSync(process.env.MOCK_EXPECTED, args[2])
+}
+if (args[0] === 'buildx' && args[1] === 'imagetools' && process.env.MOCK_EXISTING !== 'true') {
+  console.error('manifest unknown')
+  process.exitCode = 1
+}
+`)
+    chmodSync(docker, 0o755)
+    const script = resolve('.github/release-tools/publish-metadata.sh')
+    const env = { ...process.env, PATH: `${directory}:${process.env.PATH}`, MOCK_EXPECTED: join(directory, 'expected.json'),
+      MOCK_LOG: join(directory, 'calls.jsonl'), IMAGE: 'ghcr.io/phthisicus/rom-checker', VERSION: '1.3.0',
+      SOURCE_SHA: sha, CHANNEL: 'stable', BUILD_NUMBER: '143', BUILD_ATTEMPT: '1',
+      BUILT_UTC: '2026-11-11T12:00:00Z', WORKFLOW_URL: 'https://github.com/Phthisicus/ROM-Checker/actions/runs/123',
+      GITHUB_RUN_ID: '123', GITHUB_RUN_ATTEMPT: '1' }
+    const run = extra => spawnSync('bash', [script], { cwd: directory, env: { ...env, ...extra }, encoding: 'utf8' })
+    let result = run({})
+    assert.equal(result.status, 0, result.stderr)
+    assert.equal(readFileSync(join(directory, 'release-info.json'), 'utf8'), expected)
+    let calls = readFileSync(env.MOCK_LOG, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    assert.equal(calls.filter(args => args[0] === 'buildx' && args[1] === 'build').length, 1)
+    writeFileSync(env.MOCK_LOG, '')
+    result = run({ MOCK_EXISTING: 'true' })
+    assert.equal(result.status, 0, result.stderr)
+    calls = readFileSync(env.MOCK_LOG, 'utf8').trim().split('\n').map(line => JSON.parse(line))
+    assert.equal(calls.filter(args => args[0] === 'buildx' && args[1] === 'build').length, 0, 'Retries must not overwrite metadata')
+    assert.notEqual(run({ MOCK_EXISTING: 'true', MOCK_CONFLICT: 'true' }).status, 0)
+  } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 test('real git history yields incremental beta notes and cumulative stable notes; retries are deterministic', () => {
   const directory = mkdtempSync(join(tmpdir(), 'romchecker-release-tests-'))

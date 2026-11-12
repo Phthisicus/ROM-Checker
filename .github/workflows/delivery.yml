@@ -127,6 +127,13 @@ jobs:
           digest="$(docker buildx imagetools inspect "$IMAGE:$VERSION" --format '{{json .Manifest}}' | jq -r .digest)"
           [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
           echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Publish and verify immutable development release metadata
+        env:
+          IMAGE: ${{ steps.identity.outputs.image }}
+          VERSION: ${{ steps.identity.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+          CHANNEL: development
+        run: bash .github/release-tools/publish-metadata.sh
       - name: Verify published image and update development alias
         env:
           GH_TOKEN: ${{ github.token }}
@@ -271,6 +278,13 @@ jobs:
           bash .github/release-tools/smoke-image.sh "$IMAGE@$digest" "$VERSION" "$SOURCE_SHA"
           node .github/release-tools/release.mjs notes .release/release-plan.json "$digest"
           (cd .release && sha256sum release-manifest.json image-digest.txt > SHA256SUMS)
+      - name: Publish and verify immutable release metadata
+        env:
+          IMAGE: ${{ steps.plan.outputs.image }}
+          VERSION: ${{ steps.plan.outputs.version }}
+          SOURCE_SHA: ${{ github.sha }}
+          CHANNEL: ${{ github.ref_name == 'main' && 'stable' || 'beta' }}
+        run: bash .github/release-tools/publish-metadata.sh
       - name: Publish complete GitHub release
         run: node .github/release-tools/release.mjs publish .release/release-plan.json
       - name: Update channel aliases only for the current branch head

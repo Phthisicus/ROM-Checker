@@ -46,10 +46,14 @@ var options = new WebOptions(root, data, engine, Env("ROMCHECKER_POWERSHELL", "p
 Directory.CreateDirectory(data);
 var databaseCompatibility = DatabaseCompatibility.Initialize(data);
 builder.Services.AddSingleton(buildIdentity);
+builder.Services.AddSingleton(TimeProvider.System);
+builder.Services.AddSingleton(ReleaseInfo.Load(Path.Combine(AppContext.BaseDirectory, "release-info.json"), buildIdentity));
 builder.Services.AddSingleton(databaseCompatibility);
 builder.Services.AddHttpClient<UpdateChecker>(client =>
     { client.Timeout = TimeSpan.FromSeconds(20); client.MaxResponseContentBufferSize = 2 * 1024 * 1024; })
     .ConfigurePrimaryHttpMessageHandler(() => new SocketsHttpHandler { AllowAutoRedirect = false });
+builder.Services.AddSingleton<UpdateMonitor>();
+builder.Services.AddHostedService(provider => provider.GetRequiredService<UpdateMonitor>());
 builder.Services.AddSingleton(options);
 builder.Services.AddSingleton<Store>();
 builder.Services.AddSingleton<LibraryPaths>();

@@ -295,7 +295,8 @@ There is **one shared engine queue across every feature and batch**. A separate 
 | `ROMSORTER_VIRUSTOTAL_KEY` | Optional secret; configure on server only |
 | `ROMSORTER_MALWAREBAZAAR_KEY` | Optional secret; configure on server only |
 | `ROMCHECKER_VERSION`, `ROMCHECKER_COMMIT` | Image defaults for external tooling; application identity comes from the baked `/app/build-info.json`, not runtime overrides |
-| `ROMCHECKER_CHECK_UPDATES` | `false`; set `true` to enable manual, same-channel GHCR update checks in Settings; never installs updates |
+| `ROMCHECKER_CHECK_UPDATES` | `false`; set `true` to enable same-channel GHCR update checks in Settings; never installs updates |
+| `ROMCHECKER_SCHEDULED_UPDATES` | `false`; with update checks enabled, checks shortly after startup and about every six hours; manual checks remain available |
 | `ROMCHECKER_UPDATE_USERNAME`, `ROMCHECKER_UPDATE_TOKEN` | Optional server-only GHCR package-read credentials for private-package update checks |
 | `ROMCHECKER_STORAGE_URL` | App only; internal storage URL, empty disables batch storage in standalone mode |
 | `ROMCHECKER_ROLE` | `storage` starts only the internal storage service; empty starts the web app |

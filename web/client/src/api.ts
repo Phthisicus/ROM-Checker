@@ -35,8 +35,25 @@ export type Info = {
   name: string; version: string; commit: string; library: string; pathBase: string; platform: string; antivirus: string
   buildNumber?: number; buildAttempt?: number; channel?: string; builtUtc?: string; workflowUrl?: string
   schema?: { version: number; minimumSupported: number; maximumSupported: number }
+  metadataFormatVersion?: number
 }
-export type UpdateResult = { status: string; message: string; version?: string; commit?: string; buildNumber?: number; schemaCompatible?: boolean }
+export type ReleaseInfo = {
+  metadataFormatVersion: number; version: string; channel: string; commit: string; releaseUrl?: string
+  notes: string; upgradeNotes: string[]; limitations: string[]
+}
+export type SystemDetails = {
+  system: { scope: string; operatingSystem: string; architecture: string; runtime: string; startedUtc: string; uptimeSeconds: number }
+  release: ReleaseInfo
+  paths: { library: string; data: string; engine: string; pathBase: string }
+  updates: { enabled: boolean; scheduled: boolean }
+}
+export type UpdateResult = {
+  status: string; message: string; version?: string; commit?: string; buildNumber?: number
+  schemaCompatible?: boolean; release?: ReleaseInfo; notesError?: string
+}
+export type UpdateStatus = {
+  status: string; message: string; lastAttemptUtc?: string; lastSuccessUtc?: string; stale?: boolean; result?: UpdateResult
+}
 export type Job = {
   id: string; action: string; status: string; created: string; finished?: string; error?: string
   request: { sourceId?: string; journal?: string; batchId?: string; selection?: string[]; organize?: boolean }; settings: Settings

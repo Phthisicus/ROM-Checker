@@ -11,7 +11,8 @@ export function buildInfo(env) {
     commit: env.REVISION || 'development',
     builtUtc: env.BUILT_UTC || new Date().toISOString(),
     workflowUrl: env.WORKFLOW_URL || null,
-    schemaVersion: 1
+    schemaVersion: 1,
+    metadataFormatVersion: 1
   }
   if (!['local', 'development', 'beta', 'stable'].includes(channel)
     || !/^\d+\.\d+\.\d+(?:-(?:local|development\.[1-9]\d*|beta\.[1-9]\d*))?$/.test(value.version)
@@ -32,6 +33,12 @@ export function buildInfo(env) {
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const value = buildInfo(process.env)
   writeFileSync('build-info.json', JSON.stringify(value, null, 2) + '\n')
+  const release = JSON.parse(readFileSync('release-info.json', 'utf8'))
+  if (release.version !== value.version || release.channel !== value.channel || release.commit !== value.commit
+    || release.metadataFormatVersion !== 1 || typeof release.notes !== 'string'
+    || !Array.isArray(release.upgradeNotes) || !Array.isArray(release.limitations))
+    throw new Error('Release information does not match the image build identity.')
+  writeFileSync('release-notes.md', release.notes)
   for (const name of ['package.json', 'package-lock.json']) {
     const pkg = JSON.parse(readFileSync(name, 'utf8'))
     pkg.version = value.version

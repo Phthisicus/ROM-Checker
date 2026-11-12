@@ -1,5 +1,14 @@
 import { test, expect } from '@playwright/test'
 
+const systemDetails = {
+  system: { scope: 'Container', operatingSystem: 'Linux', architecture: 'X64', runtime: '.NET 10',
+    startedUtc: '2026-11-11T12:00:00Z', uptimeSeconds: 60 },
+  release: { notes: 'Fixture release notes.', upgradeNotes: [], limitations: [] },
+  paths: { library: '/library', data: '/data', engine: '/app', pathBase: '' },
+  updates: { enabled: false, scheduled: false }
+}
+const updateStatus = { status: 'disabled', message: 'Update checks are disabled.' }
+
 test('Connections opens per-integration settings and guards unsaved navigation', async ({ page }) => {
   const requests: string[] = []
   await page.route('**/api/**', async route => {
@@ -8,6 +17,8 @@ test('Connections opens per-integration settings and guards unsaved navigation',
     let data: unknown = []
     if (path === '/session') data = { authenticated: true }
     else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
     else if (path === '/settings/integrations') data = { approvedSmbHosts: [] }
     else if (path === '/settings') data = { autoDat: false, hasheous: 'Off', onlineCheck: 'Off', identifyUnknown: false, defenderScan: true }
     else if (path === '/romm/config') data = {
@@ -74,6 +85,8 @@ test('RomM checkbox rules preserve selections, distinguish draft actions, and fi
     if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() ?? {} })
     if (path === '/session') data = { authenticated: true }
     else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
     else if (path === '/romm/config') {
       if (request.method() === 'PUT') config = { ...config, ...request.postDataJSON() }
       data = config
@@ -149,6 +162,8 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
     let data: unknown
     if (path === '/session') data = { authenticated: true }
     else if (path === '/info') data = { version: 'fixture', buildNumber: 142, library: 'D:\\library' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
     else if (path === '/jobs' || path === '/catalog/verifications' || path === '/romm/jobs' || path.endsWith('/history')) data = []
     else if (path === '/romm/publish-options') data = { consoles: [], regions: [], categories: [], imports: [] }
     else if (path === '/romm/conflicts') data = []
@@ -265,7 +280,7 @@ test('collection redesign keeps scoped checks and publication safe, with URLs, a
   await page.getByRole('button', { name: 'Open navigation' }).click()
   await expect(navigation).toBeVisible()
   await page.keyboard.press('Shift+Tab')
-  await expect(page.getByRole('switch', { name: 'Advanced mode' })).toBeFocused()
+  await expect(page.getByRole('button', { name: /System & updates: fixture/ })).toBeFocused()
   await page.keyboard.press('Escape')
   await expect(navigation).not.toBeVisible()
   await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()

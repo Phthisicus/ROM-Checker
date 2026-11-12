@@ -16,7 +16,12 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 .switch-track.on { background: var(--accent-dark); }
 .switch-track.on::before { background: var(--accent); margin-left: auto; }
 .collapse-navigation { display: flex; gap: 10px; font-size: 11px; width: 100%; justify-content: flex-start; }
-.redesigned .version { display: block; font-size: 10px; line-height: 1.6; overflow-wrap: anywhere; border: 0; padding: 15px 3px 0; }
+.redesigned .version { display: flex; width: 100%; gap: 6px; justify-content: flex-start; text-align: left; font-size: 11px; line-height: 1.6; overflow-wrap: anywhere; border: 0; padding: 12px 3px; background: transparent; }
+.version-compact { display: none; }
+.update-indicator { display: inline-block; flex-shrink: 0; width: 8px; height: 8px; background: var(--accent); border-radius: 50%; }
+.release-notes { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; font-size: 13px; max-height: 32rem; overflow-y: auto; padding: 12px; background: var(--bg); }
+#system-updates details { margin: 14px 0; }
+#system-updates dd { overflow-wrap: anywhere; }
 .redesigned .main-shell { margin-left: 248px; width: calc(100% - 248px); }
 .redesigned .topbar { height: 72px; padding: 0 36px; background: var(--bg); }
 .redesigned .breadcrumb { font-size: 12px; }
@@ -31,7 +36,9 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
 .sidebar-collapsed .brand { margin-inline: 6px; }
 .sidebar-collapsed .brand-copy, .sidebar-collapsed .nav-label, .sidebar-collapsed .nav-item > span,
 .sidebar-collapsed .advanced-switch > span, .sidebar-collapsed .advanced-switch i,
-.sidebar-collapsed .collapse-navigation > span, .sidebar-collapsed .sidebar-bottom .version { display: none; }
+.sidebar-collapsed .collapse-navigation > span, .sidebar-collapsed .version-expanded { display: none; }
+.sidebar-collapsed .version-compact { display: inline; }
+.sidebar-collapsed .sidebar-bottom .version { display: flex; justify-content: center; }
 .sidebar-collapsed .nav-item, .sidebar-collapsed .advanced-switch, .sidebar-collapsed .collapse-navigation { justify-content: center; padding-inline: 8px; }
 .sidebar-collapsed .tools-label + nav { margin-top: 25px; }
 .settings-tabs { display: flex; flex-direction: row; gap: 8px; border-bottom: 1px solid var(--line); padding-bottom: 14px; margin-bottom: 24px; flex-wrap: wrap; }
@@ -147,7 +154,9 @@ summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 5px; }
   .redesigned .sidebar .brand-copy { display: block; }
   .redesigned .sidebar .nav-item, .redesigned .sidebar .advanced-switch { justify-content: flex-start; padding-inline: 15px; }
   .redesigned .sidebar .advanced-switch i { display: inline-flex; }
-  .redesigned .sidebar .version { display: block; }
+  .redesigned .sidebar .version { display: flex; justify-content: flex-start; }
+  .redesigned .sidebar .version-expanded { display: inline; }
+  .redesigned .sidebar .version-compact { display: none; }
   .collapse-navigation { display: none; }
   .mobile-menu { display: inline-flex; }
   .mobile-nav-close { display: inline-flex; position: absolute; right: 12px; top: 29px; }

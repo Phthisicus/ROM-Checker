@@ -4,7 +4,7 @@ using System.Text.RegularExpressions;
 namespace RomChecker.Web.Features.Settings;
 
 public sealed record BuildIdentity(string Version, long BuildNumber, int BuildAttempt, string Channel,
-    string Commit, DateTimeOffset? BuiltUtc, string? WorkflowUrl, int SchemaVersion)
+    string Commit, DateTimeOffset? BuiltUtc, string? WorkflowUrl, int SchemaVersion, int MetadataFormatVersion = 1)
 {
     public static BuildIdentity Load(string path)
     {
@@ -17,6 +17,7 @@ public sealed record BuildIdentity(string Version, long BuildNumber, int BuildAt
         var value = JsonSerializer.Deserialize<BuildIdentity>(File.ReadAllText(path), Json.Options)
             ?? throw new InvalidOperationException("The baked build identity is empty.");
         if (value.Channel is not ("local" or "development" or "beta" or "stable")
+            || value.MetadataFormatVersion != 1
             || value.SchemaVersion != DatabaseCompatibility.Current
             || value.Version is null || !Regex.IsMatch(value.Version, @"^\d+\.\d+\.\d+(?:-(?:local|development\.[1-9]\d*|beta\.[1-9]\d*))?$")
             || value.BuildNumber < 0 || value.BuildAttempt < 0

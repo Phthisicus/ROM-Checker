@@ -14,13 +14,19 @@ test "$(docker inspect "$image" --format '{{index .Config.Labels "org.opencontai
 identity="$(docker run --rm --entrypoint cat "$image" /app/build-info.json)"
 frontend_identity="$(docker run --rm --entrypoint cat "$image" /app/web/client/dist/build-info.json)"
 test "$identity" = "$frontend_identity"
+release="$(docker run --rm --entrypoint cat "$image" /app/release-info.json)"
+echo "$release" | jq -e --argjson build "$identity" '
+  .version == $build.version and .channel == $build.channel and .commit == $build.commit
+  and .metadataFormatVersion == 1 and (.notes | length > 0)
+  and (.upgradeNotes | type == "array") and (.limitations | type == "array")'
+test "$(docker run --rm --entrypoint cat "$image" /app/release-notes.md)" = "$(echo "$release" | jq -r .notes)"
 echo "$identity" | jq -e --arg version "$version" --arg revision "$revision" '
   .version == $version and .commit == $revision and .schemaVersion == 1
   and (.channel == "development" or .channel == "beta" or .channel == "stable")
   and (.buildNumber > 0) and (.buildAttempt > 0)
   and (.builtUtc | test("^[0-9]{4}-"))
   and (.workflowUrl | test("^https://github.com/Phthisicus/ROM-Checker/actions/runs/[0-9]+$"))'
-for field in "build-number buildNumber" "build-attempt buildAttempt" "channel channel" "workflow-url workflowUrl" "schema-version schemaVersion"; do
+for field in "build-number buildNumber" "build-attempt buildAttempt" "channel channel" "workflow-url workflowUrl" "schema-version schemaVersion" "metadata-format-version metadataFormatVersion"; do
   read -r label property <<< "$field"
   test "$(docker inspect "$image" --format "{{index .Config.Labels \"io.romchecker.$label\"}}")" = "$(echo "$identity" | jq -r ".$property")"
 done
@@ -47,5 +53,7 @@ docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.
     and .schema.version == $build.schemaVersion'
 docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.1:8080/roms/api/diagnostics/build \
   | jq -e --argjson build "$identity" '.build.version == $build.version and .build.buildNumber == $build.buildNumber and .schema.version == $build.schemaVersion'
+docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.1:8080/roms/api/system \
+  | jq -e --argjson release "$release" '.release == $release and .system.scope == "Container" and (.system.runtime | length > 0)'
 docker exec "$name" curl --fail --silent -b /tmp/release-cookies -X POST -H 'X-RomChecker: 1' http://127.0.0.1:8080/roms/api/updates/check \
   | jq -e '.status == "disabled"'

@@ -11,7 +11,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   api, busy,
   completed,
-  preview, url, type Cleanup, type Detail, type Info,
+  preview, url, type Cleanup, type Detail, type Info, type UpdateStatus,
   type Job, type Journal, type Progress
 } from './api'
 import { Modal } from './components/Presentation'
@@ -49,6 +49,7 @@ export default function App() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem('romchecker-sidebar') === 'collapsed')
   const [legacyStorage, setLegacyStorage] = useState(false)
   const [info, setInfo] = useState<Info>()
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>()
   const [jobs, setJobs] = useState<Job[]>([])
   const [batchId, setBatchId] = useState(() => sessionStorage.getItem('romchecker-collection') ?? '')
   const [jobId, setJobId] = useState('')
@@ -101,6 +102,15 @@ export default function App() {
   const historyJob = jobs.find(j => j.action === 'history' && completed(j) && (j.request.batchId ?? '') === batchId)
   const cleanupJob = jobs.find(j => j.action === 'cleanup-preview' && completed(j) && (j.request.batchId ?? '') === batchId)
   const fail = useCallback((err: unknown) => setError(err instanceof Error ? err.message : String(err)), [])
+  useEffect(() => {
+    if (!authenticated) { setUpdateStatus(undefined); return }
+    let active = true
+    const refreshStatus = () => api<UpdateStatus>('/updates/status')
+      .then(value => { if (active) setUpdateStatus(value) }).catch(error => { if (active) fail(error) })
+    void refreshStatus()
+    const timer = window.setInterval(refreshStatus, 60_000)
+    return () => { active = false; window.clearInterval(timer) }
+  }, [authenticated, fail])
   const library = useLibrary(jobs, fail, setNotice)
   const { setResultId, summary, selected, file, setPage, setFile, setReviews, selectResults, review } = library
   const refresh = useCallback(async () => {
@@ -212,7 +222,14 @@ export default function App() {
       {expert && <><span className="nav-label tools-label">TOOLS</span><nav aria-label="Advanced tools">{tabs.filter(item => ['Overview', 'ExpertLibrary', 'Changes', 'Recovery'].includes(item.name)).map(({ name, icon: Icon }) => <NavigationItem key={name} aria-label={name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'} title={name} current={tab === name} onClick={() => setTab(name)}><Icon size={20} aria-hidden="true" /><span>{name === 'Overview' ? 'Server tools' : name === 'ExpertLibrary' ? 'Detailed results' : name === 'Changes' ? 'Move previews' : 'Recovery'}</span></NavigationItem>)}</nav></>}
       <div className="sidebar-bottom"><button className="advanced-switch" role="switch" aria-label="Advanced mode" aria-checked={expert} title="Advanced mode" onClick={toggleAdvanced}><Settings2 size={18} /><span>Advanced mode</span><i aria-hidden="true" className={expert ? 'switch-track on' : 'switch-track'} /></button>
         <button className="collapse-navigation icon-button" aria-label={collapsed ? 'Expand sidebar' : 'Collapse sidebar'} onClick={() => { setCollapsed(!collapsed); localStorage.setItem('romchecker-sidebar', collapsed ? 'expanded' : 'collapsed') }}>{collapsed ? <PanelLeftOpen size={19} /> : <PanelLeftClose size={19} />}<span>Collapse sidebar</span></button>
-        <div className="row spread"><span className="version" data-frontend-version={__APP_VERSION__}>v{info?.version ?? '...'}{info?.buildNumber ? ` · Build ${info.buildNumber}` : ''}</span></div></div>
+        <button type="button" className="version" data-frontend-version={__APP_VERSION__}
+          aria-label={`System & updates: ${info?.version ?? 'loading version'}, ${info?.channel ?? 'local'}${updateStatus?.status === 'available' ? ', update available' : ''}`}
+          title={`v${info?.version ?? '...'} · ${info?.channel ?? 'local'} · Build ${info?.buildNumber ?? 'local'} · ${info?.commit ?? ''}`}
+          onClick={() => { setTab('Settings'); setMenuOpen(false) }}>
+          <span className="version-expanded">v{info?.version ?? '...'} · {info?.channel ?? 'local'}</span>
+          <span className="version-compact" aria-hidden="true">v</span>
+          {updateStatus?.status === 'available' && !updateStatus.stale && <span className="update-indicator" aria-hidden="true" />}
+        </button></div>
     </aside>
     <div className="main-shell" inert={menuOpen}><header className="topbar"><div className="row"><button className="icon-button mobile-menu" aria-label="Open navigation" aria-expanded={menuOpen} aria-controls="workspace-navigation" onClick={() => setMenuOpen(!menuOpen)}><Menu size={22} /></button><Breadcrumbs tab={tab} integration={integration} /></div>
       <div className="row"><span className="server-status"><span className="live-dot" />Self-hosted</span><button className="icon-button" onClick={() => setDark(!dark)} aria-label={dark ? 'Use light theme' : 'Use dark theme'}>{dark ? <Sun size={18} /> : <Moon size={18} />}</button><button className="icon-button" aria-label="Sign out" onClick={() => api('/logout', { method: 'POST' }).then(() => setAuthenticated(false)).catch(fail)}><LogOut size={18} /></button></div></header>
@@ -231,7 +248,7 @@ export default function App() {
         {expert && (tab === 'ExpertLibrary' || tab === 'Changes') && <LibraryView tab={tab === 'ExpertLibrary' ? 'Library' : 'Changes'} library={library} jobs={jobs} active={active} pending={pending} start={start} confirm={confirm} />}
         {tab === 'Jobs' && <><ActivitySummary advanced={expert} jobs={jobs} fail={fail} /><JobsView expert={expert} jobs={jobs} jobId={jobId} detail={detail} log={log} setJobId={setJobId} selectResults={selectResults} setTab={setTab} refresh={refresh} fail={fail} openCollection={id => { setBatchId(id); setLegacyStorage(false); setTab('Storage') }} /></>}
         {expert && tab === 'Recovery' && <RecoveryView journals={journals} cleanup={cleanup} cleanupJob={cleanupJob} active={active} pending={pending} start={start} confirm={confirm} />}
-        {tab === 'Settings' && <SettingsView advanced={expert} info={info} fail={fail} saved={() => setNotice('Settings saved. New jobs use these settings; existing previews keep their original configuration.')} />}
+        {tab === 'Settings' && <SettingsView advanced={expert} info={info} fail={fail} onUpdate={setUpdateStatus} updateStatus={updateStatus} saved={() => setNotice('Settings saved. New jobs use these settings; existing previews keep their original configuration.')} />}
         {tab === 'Storage' && (legacyStorage ? <StorageView batchId={batchId} select={setBatchId} start={start} active={!!active || pending} fail={fail} /> : <CollectionsView advanced={expert} batchId={batchId} select={setBatchId} start={start} jobs={jobs} progress={progress} fail={fail} recovery={() => { setExpert(true); localStorage.setItem('romchecker-advanced', 'true'); setTab('Recovery') }} />)}
         <footer className="page-footer"><span>ROM CHECKER</span><span className="row"><Shield size={14} />Originals preserved. Findings explained.</span></footer>
       </main>
