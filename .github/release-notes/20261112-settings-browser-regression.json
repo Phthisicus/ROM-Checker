@@ -1,0 +1,5 @@
+{
+  "type": "maintenance",
+  "title": "Keep the settings save checkpoint focused",
+  "description": "Browser checks now distinguish the settings-saved confirmation from the separate update-status message, so both can appear together without blocking the delivery checks."
+}

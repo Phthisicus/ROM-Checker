@@ -15,7 +15,7 @@ test('subpath deployment supports checking, reviewing, applying and recovery', a
   await page.getByText('Advanced engine & server settings', { exact: true }).click()
   await page.getByLabel('Hasheous lookup').selectOption('Off')
   await page.getByRole('button', { name: 'Save settings' }).click()
-  await expect(page.getByRole('status')).toContainText('Settings saved')
+  await expect(page.getByRole('status').filter({ hasText: 'Settings saved' })).toBeVisible()
   await page.getByRole('button', { name: 'Server tools', exact: true }).click()
   await page.getByRole('button', { name: 'Check library', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Detailed results', exact: true })).toBeVisible({ timeout: 60_000 })
