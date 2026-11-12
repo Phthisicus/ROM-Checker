@@ -67,12 +67,39 @@ test('notes include user-facing highlights, upgrade cautions, limitations and re
     image: 'ghcr.io/owner/repo', baseline: 'v1.2.3', notes: [{ ...feature, upgrade: 'Map your consoles.', limitations: 'Shared storage is required.' }],
     commits: [{ hash: sha, subject: 'feat: add scoped checks' }] }
   const result = renderNotes(plan, 'sha256:' + 'c'.repeat(64))
-  for (const text of ['Beta prerelease', '## Highlights', feature.description, 'Map your consoles.', 'Shared storage is required.',
+  for (const text of ['Beta prerelease', '## ✨ New unlocks — Features', feature.description, 'Map your consoles.', 'Shared storage is required.',
     'ghcr.io/owner/repo:1.3.0-beta.1', 'sha256:', 'v1.2.3...v1.3.0-beta.1', 'Commit history'])
     assert.ok(result.includes(text), text)
   const stable = renderNotes({ ...plan, prerelease: false, notes: [] }, 'sha256:' + 'c'.repeat(64))
   assert.ok(stable.includes('No editorial feature summary was supplied'))
   assert.ok(!stable.includes('Beta prerelease'))
+})
+test('playful patch notes keep channel warnings, safety information and technical identities explicit', () => {
+  const breaking = { ...feature, type: 'breaking', title: 'Storage format changes',
+    description: 'Existing storage requires migration.', upgrade: 'Back up and migrate the database.' }
+  const security = { ...feature, type: 'security', title: 'Restrict unauthorized access',
+    description: 'Requests without authentication are rejected.' }
+  const plan = { ...input, version: '1.3.0', tag: 'v1.3.0', repository: 'owner/repo',
+    image: 'ghcr.io/owner/repo', notes: [feature, breaking, security],
+    commits: [{ hash: sha, subject: 'fix: restrict unauthorized access' }] }
+  const stable = renderNotes(plan, 'sha256:' + 'c'.repeat(64))
+  for (const text of ['# 🎮 ROM Checker 1.3.0 — Patch notes', '**Stable release',
+    'ROM-checking loadout', '## ⚠️ Breaking changes\n\n### Storage format changes',
+    '## 🛡️ Security', security.description, breaking.upgrade,
+    'Back up application data, ROM storage, and configuration.',
+    'Rollback may require restoring the matching data backup.',
+    'ghcr.io/owner/repo:1.3.0', `https://github.com/owner/repo/commit/${sha}`,
+    'fix: restrict unauthorized access'])
+    assert.ok(stable.includes(text), text)
+  const beta = renderNotes({ ...plan, branch: 'beta', prerelease: true })
+  assert.ok(beta.includes('Beta prerelease — intended for testing, not production.'))
+  assert.ok(beta.includes('Ready for a test run?'))
+  const development = renderNotes({ ...plan, branch: 'development', prerelease: true })
+  assert.ok(development.includes('Development build — experimental and not intended for production.'))
+  assert.ok(development.includes('Welcome to the workshop!'))
+  assert.ok(!development.includes('Beta prerelease'))
+  assert.deepEqual(releaseInfo(plan).upgradeNotes, [breaking.upgrade])
+  assert.equal(releaseInfo(plan).notes, renderNotes(plan))
 })
 test('promotion policy accepts feature work and same-repository promotions, rejects bypasses', () => {
   const path = resolve('.github/release-tools/policy.mjs')

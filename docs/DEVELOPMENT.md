@@ -54,11 +54,13 @@ Add a uniquely named JSON file under `.github/release-notes/` to each meaningful
 
 Allowed types: `feature`, `improvement`, `fix`, `performance`, `security`, `breaking`, `maintenance`. Title and description are required; upgrade/limitations are optional except that breaking changes **must** include upgrade instructions. Entries are append-only and retained for stable-release aggregation; do not delete them after a beta. Avoid secrets, personal data, unverified claims, and raw technical commit titles as feature descriptions.
 
+Use a friendly, lightly gaming-themed patch-note voice in new entries: describe the actual user benefit first, then add a little personality. The shared template supplies one emoji per section heading and channel-specific introductions for both GitHub and embedded notes. Occasional feature-title emojis are welcome; avoid emoji-heavy sentences, full roleplay, or claims such as "flawless protection." Keep security disclosures, breaking changes, backup/migration instructions, and limitations factual and explicit. Keep versions, image tags, commands, and English Conventional Commit subjects unchanged and emoji-free. Do not rewrite published entries or releases just to change their tone.
+
 The release template renders:
 
-1. Clear stable/beta identity.
+1. Clear stable/beta/development identity and a short gaming-themed introduction.
 2. Main feature highlights and user benefits.
-3. Improvements, fixes, security changes, and maintenance.
+3. Improvements, fixes, security changes, and maintenance, with breaking changes in their own explicit section.
 4. Backup, migration, and upgrade guidance.
 5. Known limitations.
 6. Exact image version, digest, source commit, release assets, and expandable commit history.
