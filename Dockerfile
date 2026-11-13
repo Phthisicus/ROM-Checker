@@ -1,4 +1,4 @@
-FROM node:24-alpine AS frontend
+FROM node:25-alpine AS frontend
 WORKDIR /src
 COPY web/client/package*.json ./
 RUN npm ci --no-fund --no-audit
