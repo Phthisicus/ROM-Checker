@@ -1,0 +1,13 @@
+.tools/
+**/bin/
+**/obj/
+**/node_modules/
+**/dist/
+**/playwright-report/
+**/test-results/
+.env
+.env.romm
+data/
+*.user
+*.tsbuildinfo
+.release/

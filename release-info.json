@@ -1,0 +1,10 @@
+{
+  "metadataFormatVersion": 1,
+  "version": "0.0.0-local",
+  "channel": "local",
+  "commit": "development",
+  "releaseUrl": null,
+  "notes": "Local source build. Published release notes are not available.",
+  "upgradeNotes": [],
+  "limitations": []
+}

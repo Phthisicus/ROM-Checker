@@ -1,0 +1,77 @@
+# Run with: docker compose --env-file .env.romm -f compose.romm.yml up -d
+# Keep compose.yml beside this file; shared services are inherited from it.
+services:
+  romchecker:
+    extends:
+      file: compose.yml
+      service: romchecker
+    environment:
+      ROMCHECKER_ROMM_EXPORT_ROOT: /storage/romm-library
+    volumes:
+      - type: bind
+        source: ${ROMM_LIBRARY:?Set ROMM_LIBRARY to a dedicated shared export folder}
+        target: /storage/romm-library
+        bind:
+          create_host_path: false
+  rom-storage:
+    extends:
+      file: compose.yml
+      service: rom-storage
+  signature-updater:
+    extends:
+      file: compose.yml
+      service: signature-updater
+  romm:
+    image: ${ROMM_IMAGE:-rommapp/romm:5.4.1}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ROMM_PORT:-8081}:8080"
+    environment:
+      DB_HOST: romm-db
+      DB_NAME: romm
+      DB_USER: romm
+      DB_PASSWD: ${ROMM_DB_PASSWORD:?Set a unique RomM database password}
+      ROMM_AUTH_SECRET_KEY: ${ROMM_AUTH_SECRET_KEY:?Generate a RomM authentication secret}
+      HASHEOUS_API_ENABLED: ${ROMM_HASHEOUS_API_ENABLED:-false}
+      IGDB_CLIENT_ID: ${ROMM_IGDB_CLIENT_ID:-}
+      IGDB_CLIENT_SECRET: ${ROMM_IGDB_CLIENT_SECRET:-}
+      STEAMGRIDDB_API_KEY: ${ROMM_STEAMGRIDDB_API_KEY:-}
+    volumes:
+      - type: bind
+        source: ${ROMM_LIBRARY:?Set ROMM_LIBRARY to a dedicated shared export folder}
+        target: /romm/library
+        read_only: true
+        bind:
+          create_host_path: false
+      - romm-resources:/romm/resources
+      - romm-assets:/romm/assets
+      - romm-config:/romm/config
+      - romm-redis:/redis-data
+    depends_on:
+      romm-db:
+        condition: service_healthy
+  romm-db:
+    image: mariadb:11.4
+    restart: unless-stopped
+    environment:
+      MARIADB_DATABASE: romm
+      MARIADB_USER: romm
+      MARIADB_PASSWORD: ${ROMM_DB_PASSWORD:?Set a unique RomM database password}
+      MARIADB_ROOT_PASSWORD: ${ROMM_DB_ROOT_PASSWORD:?Set a separate database root password}
+    volumes:
+      - romm-db:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      start_period: 30s
+      interval: 10s
+      timeout: 5s
+      retries: 10
+volumes:
+  app-data:
+  signatures:
+  rom-storage:
+  romm-db:
+  romm-resources:
+  romm-assets:
+  romm-config:
+  romm-redis:

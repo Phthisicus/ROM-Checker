@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "A modern, collection-first workspace with simpler navigation",
+  "description": "A redesigned dark/light interface brings cover-first browsing, console shelves, artwork placeholders, named saved views, global sorting, exact-copy filters, contextual file selection and detailed game drawers. Four primary destinations keep everyday work focused; a persistent Advanced mode reveals expert workflows, raw evidence and technical settings without changing verification policy. Hash-based routes preserve library filters, pages and open files through bookmarks and browser Back/Forward, including reverse-proxy subpaths. Library verification continues in the background without pulling users away from browsing.",
+  "upgrade": "No ROM migration or reorganization is required. RomM settings are now under Settings > Connections; import history is under Add games. Enable Advanced mode in the sidebar for Server tools, Detailed results, Move previews, Recovery and raw logs. Browser preferences and saved views are local to each browser.",
+  "limitations": "Artwork and descriptions remain optional RomM metadata, not verification evidence. Cards and grouped exact copies retain independent file-level checks and publication decisions; differently hashed variants are never merged by title. Advanced mode is a presentation preference, not an authorization boundary."
+}

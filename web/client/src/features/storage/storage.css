@@ -1,0 +1,13 @@
+.storage-workspace { display: grid; gap: 22px; min-width: 0; }
+.storage-workspace .panel { min-width: 0; }
+.storage-workspace button, .storage-workspace .button { max-width: 100%; overflow-wrap: anywhere; }
+.storage-workspace .row { flex-wrap: wrap; }
+.batch-scope { flex-wrap: wrap; }
+.batch-scope > span { min-width: 0; overflow-wrap: anywhere; flex-basis: 180px; }
+.storage-workspace form { margin-bottom: 15px; }
+.storage-workspace .storage-actions { margin: 16px 0; }
+.storage-actions input[type=file] { max-width: 230px; font-size: 12px; }
+.storage-workspace progress { width: 100%; accent-color: var(--accent); }
+.storage-list { max-height: 420px; overflow: auto; margin: 15px 0; }
+.storage-list > div { padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }
+.storage-list input[type=checkbox] { width: 18px; flex: 0 0 18px; }

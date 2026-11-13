@@ -1,0 +1,74 @@
+services:
+  romchecker:
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
+    build:
+      context: .
+      args:
+        VERSION: ${ROMCHECKER_VERSION:-0.0.0-local}
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:${ROMCHECKER_PORT:-8080}:8080"
+    environment:
+      ROMCHECKER_PASSWORD: ${ROMCHECKER_PASSWORD:?Set a strong ROMCHECKER_PASSWORD in .env}
+      ROMCHECKER_PATH_BASE: ${ROMCHECKER_PATH_BASE:-}
+      ROMCHECKER_TRUSTED_PROXIES: ${ROMCHECKER_TRUSTED_PROXIES:-}
+      AllowedHosts: ${ROMCHECKER_ALLOWED_HOSTS:-localhost;127.0.0.1}
+      ROMCHECKER_STORAGE_URL: http://rom-storage:8080
+      ROMCHECKER_STORAGE_ROOT: /storage
+      ROMCHECKER_STORAGE_TOKEN: ${ROMCHECKER_STORAGE_TOKEN:?Set a random storage token of at least 32 characters}
+      ROMCHECKER_SMB_HOSTS: ${ROMCHECKER_SMB_HOSTS:-}
+      ROMCHECKER_ROMM_EXPORT_ROOT: /storage/romm-library
+      ROMCHECKER_CHECK_UPDATES: ${ROMCHECKER_CHECK_UPDATES:-false}
+      ROMCHECKER_SCHEDULED_UPDATES: ${ROMCHECKER_SCHEDULED_UPDATES:-false}
+      ROMCHECKER_UPDATE_USERNAME: ${ROMCHECKER_UPDATE_USERNAME:-}
+      ROMCHECKER_UPDATE_TOKEN: ${ROMCHECKER_UPDATE_TOKEN:-}
+      ROMSORTER_VIRUSTOTAL_KEY: ${ROMSORTER_VIRUSTOTAL_KEY:-}
+      ROMSORTER_MALWAREBAZAAR_KEY: ${ROMSORTER_MALWAREBAZAAR_KEY:-}
+    volumes:
+      - "${ROM_LIBRARY:?Set ROM_LIBRARY to your host ROM folder}:/library"
+      - app-data:/data
+      - signatures:/var/lib/clamav:ro
+      - rom-storage:/storage
+    depends_on:
+      rom-storage:
+        condition: service_healthy
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 2m
+  rom-storage:
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
+    restart: unless-stopped
+    environment:
+      ROMCHECKER_ROLE: storage
+      ROMCHECKER_STORAGE_ROOT: /storage
+      ROMCHECKER_STORAGE_TOKEN: ${ROMCHECKER_STORAGE_TOKEN:?Set a random storage token of at least 32 characters}
+      ROMCHECKER_STORAGE_MAX_BYTES: ${ROMCHECKER_STORAGE_MAX_BYTES:-1099511627776}
+      ROMCHECKER_STORAGE_MAX_FILES: ${ROMCHECKER_STORAGE_MAX_FILES:-100000}
+      ROMCHECKER_STORAGE_RESERVE_BYTES: ${ROMCHECKER_STORAGE_RESERVE_BYTES:-1073741824}
+      ROMCHECKER_SMB_HOSTS: ${ROMCHECKER_SMB_HOSTS:-}
+    volumes:
+      - rom-storage:/storage
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 2m
+  signature-updater:
+    image: ${ROMCHECKER_IMAGE:-ghcr.io/phthisicus/rom-checker:latest}
+    restart: unless-stopped
+    entrypoint: ["freshclam"]
+    command: ["--daemon", "--foreground=true", "--config-file=/etc/clamav/freshclam.conf"]
+    volumes:
+      - signatures:/var/lib/clamav
+    healthcheck:
+      disable: true
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+volumes:
+  app-data:
+  signatures:
+  rom-storage:

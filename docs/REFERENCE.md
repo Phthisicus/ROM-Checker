@@ -1,0 +1,421 @@
+![ROM Checker - Verify. Protect. Preserve.](../assets/brands/banner.webp)
+
+# ROM Checker operational reference
+
+This reference preserves detailed engine, workflow, and deployment information.
+For step-by-step installation and everyday usage, start with the
+[user documentation](wiki/Home.md) or the
+[published Wiki](https://github.com/Phthisicus/ROM-Checker/wiki).
+
+**Verify. Protect. Preserve.**
+
+[![CI and delivery](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml/badge.svg?branch=development)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml)
+![Deployment: self-hosted](https://img.shields.io/badge/deployment-self--hosted-91d900)
+![Container platform: Linux amd64](https://img.shields.io/badge/container-Linux%20amd64-555555)
+
+## Introduction
+
+ROM Checker is a self-hosted ROM verification and security platform. It helps you validate ROM integrity, review security findings, and organize gaming collections while keeping your library on infrastructure you control.
+
+## Key features
+
+- Verify file identity, integrity, local antivirus results, online malware indicators, and organization eligibility as separate findings.
+- Browse a permanent library with console grouping, filters, saved views, file details, and import history.
+- Upload folders in resumable chunks or import read-only from explicitly approved SMB servers.
+- Review changes before organization; file moves are journaled and recoverable, and originals are not overwritten.
+- Run background jobs with progress, logs, cancellation for non-mutating work, and recovery tools.
+- Optionally connect RomM for metadata, artwork, imports, and explicitly approved publishing.
+- Deploy with Docker Compose as a single-administrator application.
+
+## Screenshots
+
+Screenshots of the running application are not checked into this repository yet. Product screenshots should be added only from an actual running instance and reviewed to remove private paths, library contents, and other sensitive information.
+
+## How it works
+
+ROM Checker uses the existing PowerShell ROM Sorter engine for analysis. The web application manages a single catalog, settings, and background job queue. Imports are added to that catalog; they are not separate libraries. Verification, reference identity, integrity, security, and organization are reported independently. Online lookups are optional and require user consent where applicable. A clean result is not a guarantee that a file is safe.
+
+## Quick links
+
+- [Docker Compose installation](#run-with-docker-compose)
+- [Configuration reference](#configuration)
+- [RomM integration](#romm-integration)
+- [Security and privacy](#security-and-privacy)
+- [Development and release guide](DEVELOPMENT.md)
+- [Contributing](../CONTRIBUTING.md)
+- [Security policy](../SECURITY.md)
+- [Code of conduct](../CODE_OF_CONDUCT.md)
+- [Repository setup recommendations](../.github/REPOSITORY_SETUP.md)
+
+## Web workspace
+
+- One permanent SQLite library with console groups, scoped verification, integrated findings, import provenance, and accessible file-detail drawers.
+- Four simple destinations: Library, Add games, Activity, and Settings, with responsive dark/light themes and a collapsible desktop sidebar/mobile navigation drawer.
+- Cover-first browsing with console shelves, optional RomM artwork, attractive cover placeholders, list view, saved views, sorting, and a filter drawer.
+- Bookmarkable library filters, sort, pages and file details, with browser Back/Forward support; detailed evidence and expert tools are revealed by one persistent Advanced mode switch.
+- Independent authenticity, integrity, antivirus, and malware findings. No detections never means guaranteed safe.
+- Check-only scanning, sort-only inventory, archive unpacking, and unpack-then-check workflows.
+- Draft per-file review decisions: keep, mark original, or quarantine. Rebuild the preview to incorporate decisions; security warnings cannot be overridden through the web interface.
+- All six sorting layouts, duplicate policies, custom DAT references, verification options, and archive resource limits.
+- Automatic organization of eligible collection working copies after explicit **Verify & organize** approval; Expert workspace previews still require explicit Apply. Content/inventory revalidation and journaled recovery keep disc sets and companions together.
+- Background jobs with live events, progress, warnings, downloadable logs, and cancellation for non-mutating jobs.
+- Journal inspection, undo previews, restoration, and verified processed-archive cleanup.
+- Password authentication, persistent SQLite job/settings storage, non-root Docker runtime, and reverse-proxy subpath support.
+- Dedicated ROM storage service, resumable bulk folder uploads, read-only SMB imports, per-batch processing choices, and processed-folder ZIP downloads.
+
+This is a **single-administrator application**, not a multi-tenant upload service. Managed import batches feed one canonical catalog; batches are provenance/storage boundaries, not independent libraries. Optional external verification services receive hashes and metadata, not ROM contents. RomM publishing is an explicit exception: eligible ROM copies are made available to your configured RomM instance. Browser access does not grant access to arbitrary host folders.
+
+## One library, independent background work
+
+**Library** is the permanent browsing surface. Uploading another folder, copying from SMB, or receiving a game from RomM adds an import session to the same catalog. **Add games** retains resumable transfers and their source history. **Activity** contains processing operations, queues, errors, and retry controls; library verification stays in the library while work runs. **Settings > Connections** owns RomM configuration, platform mappings, and synchronization history. **Settings** owns verification and storage defaults.
+
+The sidebar's **Advanced mode** switch reveals Server tools, Detailed results, Move previews, Recovery, raw evidence, engine logs, individual per-run checks, and detailed server settings. It is a presentation preference stored in this browser, not a permission boundary: switching it off never disables checks, changes saved policy, dismisses errors, or removes publication safeguards. Online-service consent and publication previews remain explicit in normal mode. Originals remain protected.
+
+The Library opens in a cover grid, even without artwork. Open a console, search or use **Filters**, then select specific files; the contextual action bar can check or preview publication for that selection. **Selection > Select all filtered** includes every matching page, while **More actions > Check entire library** ignores the current filters. Titles are descriptive: actions always target explicit catalog file IDs. Game details retain separate reference, integrity, security and organization findings, publication blocks, and exact SHA-256 copies with independent eligibility. Variants are not merged by filename.
+
+Navigation uses hash URLs such as `/roms/#/library?console=NES&sort=name&page=2` and `/roms/#/settings/connections`, so bookmarked views work behind the configured reverse-proxy subpath without additional server rewrite rules. Filters, sorting, page and open file are preserved in the URL, with browser Back/Forward support. Search edits replace the current URL rather than creating one history entry per keystroke. Returning from another screen restores the Library view; cover/list mode, cover size, sort preference, theme, Advanced mode and named saved views are local browser preferences. Sharing a URL does not grant access or bypass sign-in.
+
+Existing managed collection manifests are migrated idempotently into SQLite without relocating or deleting originals or recovery journals. Stable entries retain their import and engine identifiers across normal organization. Reference identity, completed checks, integrity, security, organization, and remote synchronization are separate states. Exact duplicate fingerprints are reported without merging different variants or automatically deleting either copy. A changed file invalidates its old publication eligibility and approval.
+
+Background reconciliation reuses fingerprints only while a file's path, size, and modification time are unchanged. Explicit library refresh, manual approval, and publication rehash physical content; background reconciliation is not a continuous filesystem integrity monitor. Deleted imports remain in history as missing files and cannot be published.
+
+Use library filters and explicit selection to check a file, console, category, all matching results, or the whole library. Selecting a supported disc/companion member includes its linked group. Cross-import operations are dispatched sequentially through the existing engine rather than running competing writers. Technical job snapshots remain historical evidence, not the current library database.
+
+Manual review approvals require an explanation and are bound to the exact SHA-256 fingerprint. They acknowledge a reviewable known modification or missing reference; they do not erase warnings, rewrite checksums, certify safety, or override malicious/suspicious findings, incomplete required protection, identity conflicts, or incomplete dependencies. Approval alone does not move the file. Approval and organization are recorded separately in history.
+
+## RomM integration
+
+Open **Settings > Connections** to select an integration. The overview shows configuration status, not a live connectivity result. Choose **Open RomM settings** to manage RomM at `#/settings/connections/romm`; `#/settings/connections` opens the overview. Every page uses the main top breadcrumb; RomM shows **Your collection > Settings > Connections > RomM**, with clickable ancestors instead of a separate page breadcrumb or back link. Browser history and direct bookmarks are supported. Leaving the RomM page with unsaved edits requires confirmation. Configuration is saved per integration; other connection/privacy settings remain under Preferences & server.
+
+ROM Checker owns managed file identity, verification, approvals, and publication eligibility. RomM supplies descriptive metadata and a browsing/playback library. Metadata linking requires exact hash and platform evidence, never title-only matching. Imported metadata is separate from local verification findings.
+
+Configure a RomM base URL and a dedicated API token under **Settings > Connections**, test the connection, and map each local console to the actual RomM platform ID and filesystem slug. The connection test reads the installed OpenAPI schema and platform list; publishing requires the exact-hash API and token-authenticated scan task API. Older RomM releases may need upgrading. Credentials are protected using the application's persisted Data Protection keys and are never returned by the settings API. Use HTTPS for a non-local network; redirects are deliberately not followed and credentials are not reused when changing servers without supplying a token.
+
+### Publication transport and Docker mounts
+
+Publishing uses a **shared export library plus the RomM API**, not direct database access or an HTTP ROM upload. This preserves nested disc/companion paths and keeps unchecked imports out of RomM. The default export root is `/storage/romm-library`, separate from `batches/`; standalone deployments may set `ROMCHECKER_ROMM_EXPORT_ROOT` to a separate, writable shared directory.
+
+Mount **only that export directory** as RomM's `/romm/library`, preferably read-only. Do not mount the entire ROM storage volume as RomM's library: it includes unchecked originals and staging files. For the supplied Compose deployment, the export directory is the `romm-library` subdirectory of the project-scoped `rom-storage` named volume. Use a Docker volume subpath mount or an explicit shared bind mount. The directory is created on first successful export; ensure it exists before configuring a volume subpath. Both applications must reach the same export files, and UID/GID `10001:10001` needs write access from ROM Checker.
+
+Exports use RomM's `roms/<platform filesystem slug>/<stable group ID>/...` layout. Complete linked groups are copied and fingerprint-checked in a staging directory outside `roms`, then promoted together. Existing exports are reused only when every file matches; differing files are never silently overwritten. A complete group plus a 1 GiB reserve must fit on disk. A successful export queues a RomM scan and later links exact file hashes to metadata. “Exported / awaiting scan” is not “linked”; scan failures and missing mounts are explicit, retryable failures.
+
+The API token needs `platforms.read`, `roms.read`, and `tasks.run` for this shared-library flow. RomM file-write scope is not needed to copy into the local export directory. RomM metadata resources and database remain its own responsibility. There is no remote rename, file deletion, or bidirectional deletion propagation.
+
+### Eligibility and scoped publishing
+
+**Unchecked, running, incomplete, or changed files cannot be published.** Completed checks are necessary but not sufficient: required integrity, identity, security, and linked-file policies must also pass. Reference-matched files can be eligible; checked files without a reference or with a known-modification warning require the applicable explicit approval. Security blocks cannot be approved away.
+
+Filter by console, category, completed checks, reference status, attention, and eligibility. Preview publication before confirming: eligible files and excluded files have separate counts and reasons. Linked groups are expanded and held as a unit when a member is blocked. Automatic publishing is opt-in and uses the same server-side eligibility checks as manual publishing, including a fresh physical fingerprint check. A current exact remote match is linked instead of creating another copy.
+
+#### Automatic publishing rules
+
+Under **Settings > Connections > Publish to RomM**, enable automatic publication and restrict it by reference requirement, consoles, game categories, regions, and named imports. Choose **Reference matches only** to exclude approved-but-unmatched files; the default preserves the existing policy-eligible behavior. Each filter offers **Any** (unrestricted) or **Selected** with searchable checkboxes, selected counts, and **Select all shown / Clear selection** actions. All filters must match; within a filter any checked value matches. A Selected filter needs at least one choice before saving or previewing; clearing its checkboxes never silently broadens publication. Existing empty saved filters remain unrestricted. Import selection refers to managed import sessions, not individual game IDs or browser saved views.
+
+Regions are normalized from parenthesized tags in checked DAT-match titles, then checked hash-match titles, falling back to filenames. Their source is shown in game details and the rules preview. These tags describe regions, not authenticity. Common full region names and aliases such as `US`, `EU`, `JP`, `UK`, and legacy `U`/`J`/`E` combinations are recognized; language/revision tags and `PAL`/`NTSC` are not geographic evidence. Multi-region games match any selected region. `World` is a separate choice, not a wildcard. With a region filter, unknown and filename-only regions are excluded unless you explicitly allow filename inference or include unknown/disallowed-source regions.
+
+Use **Preview draft publishing rules** before saving. It evaluates draft rules against saved platform mappings without transferring files or changing settings, shows whole-game counts and exclusion reasons, and distinguishes ready, pending, linked, and failed work. **Save RomM settings** saves the entire configuration: connection, mappings, publishing, imports, and schedule. An unsaved-changes indicator distinguishes draft settings from saved policy. Explicitly enable automatic publication to apply the rules; browser library filters do not affect this policy. Every primary file must match. Companions inherit their game's reference/category/region filters but must pass all required checks; linked groups are never split.
+
+The scheduler checks approximately once a minute and keeps complete groups together. It rechecks current rules before making new automatic exports visible, including after a settings change during transfer. Disabling automatic publication prevents new exports; already-exported copies remain and can finish scanning/linking. Failed automatic work requires an explicit retry in RomM activity instead of being endlessly requeued. Rule changes never remove existing exports, bypass verification, or constrain separately confirmed manual publication. Existing installations retain their saved auto-publish setting and unrestricted rules until changed.
+
+**Import from RomM** streams individual game files into a resumable managed import using bounded chunks, preserving nested paths. ROM bytes are not buffered as a whole game. Received files start unchecked, even when RomM already knows their metadata. Complete per-file SHA-1 hashes and sizes are required before new imports can be queued; scan RomM first if they are missing. Unexpected archives, changed download sizes, or mismatched hashes fail explicitly rather than being silently accepted. No automatic extraction or remote deletion occurs.
+
+#### Inbound discovery, metadata schedules, and conflicts
+
+Under **Settings > Connections > Import from RomM**, use the searchable platform checklist, opt into automatic imports, and **Save RomM settings**. No platform is selected implicitly; no selected platforms means no automatic imports. **Metadata & schedule** has a separate metadata-refresh opt-in covering all existing links, including platforms not selected for import. The shared interval is 1-1440 minutes (default 60). The first enabled pass is queued automatically; subsequent passes are timed from persisted completion history, so a restart does not reset the schedule. **Run saved synchronization** queues a pass and rechecks conflicts using saved settings, not unsaved browser drafts. Conflicts and their recovery actions appear separately from these settings.
+
+Discovery pages through RomM's ROM list and fetches individual file metadata (up to 100000 games per pass). Exact per-file SHA-1, sizes, platform, paths, and whole-game identity are persisted alongside import checkpoints. Missing hash evidence is held as a conflict; scan RomM before rechecking. Files are compared as complete linked games, never by title. Existing local content is physically fingerprint-checked and linked rather than downloaded again. Different remote IDs with identical complete content do not create more local copies; existing primary links are preserved. Previously failed or partial imports require an explicit retry rather than an endless stream of new imports. Import batch allocation is idempotent, including retries after a lost response/restart. New downloads enter managed storage, are console-detected, and remain unchecked; neither RomM metadata nor automatic discovery bypasses local verification.
+
+Scheduled reconciliation refreshes descriptive metadata only while exact local and remote content still matches. Manual metadata refresh preserves an existing remote identity and its file baseline rather than silently relinking by hash. Changed remote bytes, file paths or platform, missing remote games, changed local bytes, and missing local files become visible synchronization conflicts. Remote outages fail the sync job rather than masquerading as deletions. Existing files, verification results, approvals, and history are retained. Automatic publication is held for conflicted/ignored linked content to prevent a feedback loop.
+
+Refresh the local catalog and recheck after restoring matching files to recover a clean link. **Keep local copy** ignores the current remote file version without changing local files or metadata; rechecking leaves that version ignored, and a different subsequent remote version reopens the conflict. **Import remote as separate copy** explicitly downloads the current remote version into a new unchecked import when it is not already present, retaining the old local copy. Missing remote files cannot be imported. These actions require confirmation; no conflict action propagates deletions or silently replaces files. Disabling inbound imports stops new transfers at policy checkpoints; already-prepared files remain available. Automatic import and scheduled metadata refresh are disabled by default, including after upgrading an existing installation.
+
+For a live trial, back up ROM Checker's application data and storage and RomM's database/library, use a small dedicated mapped platform or test instance, leave auto-publish off, then enable inbound discovery for that platform only. Run one sync, confirm imported files are unchecked, run again to check that no new imports are created, and compare file hashes. Enable metadata refresh and change a description to confirm it updates without changing verification. On disposable test copies, change/remove a remote file and confirm a conflict appears without local modification; restore and recheck. Review activity/errors before enabling broader automation. A live RomM instance and backed-up library must be provided separately; the bundled protocol fixture is not a real-server compatibility trial.
+
+Connection settings, file mappings, metadata snapshots, queued synchronization jobs, transfer checkpoints, and audit history persist in SQLite. Queued work survives restarts; partially exported files are not visible as a complete group. Retry failed work from Integrations. RomM scans can take time; linking times out after 30 minutes with an actionable error. Reconfiguring the connection requires pending synchronization work to finish.
+
+The integration is exercised against a local HTTP protocol fixture. On 2026-11-12, a local development build was also tested with the supplied RomM 5.4.1 stack and synthetic NES files; see [RomM Workflows](wiki/RomM-Workflows.md) for the scope. This does not establish compatibility with every RomM version, metadata provider, or real collection. Test your installed instance and a small backed-up library before enabling automatic publishing.
+
+## Run with Docker Compose
+
+Requirements: Docker Engine with Compose, a backed-up ROM folder, and permission for container UID/GID **10001:10001** to read and modify that folder.
+
+1. Copy `.env.example` to `.env`.
+2. Set `ROM_LIBRARY` to an absolute host directory. On Docker Desktop, use a shared host folder, for example `C:/ROMs`.
+3. Set a unique `ROMCHECKER_PASSWORD` of at least 16 characters and a separate random `ROMCHECKER_STORAGE_TOKEN` of at least 32 characters.
+4. Optionally set `ROMCHECKER_SMB_HOSTS` to exact SMB server hostnames/IPs approved for imports.
+5. Build locally and start the application, ROM storage service, and ClamAV signature updater:
+
+```sh
+docker compose build romchecker
+docker compose up -d
+```
+
+Open `http://localhost:8080/`. The published port binds to loopback by default. All three services use the same image tag; `docker compose build romchecker` tags that image for every service. `rom-storage` runs only the storage API, not a second processing worker. Its port is not published.
+
+After CI has published the image, use `docker compose pull && docker compose up -d` instead. The `beta` image follows tested integration builds; `latest` follows approved stable releases. For predictable deployments, pin a version or digest with `ROMCHECKER_IMAGE`.
+
+**Check signature readiness:** `docker compose logs signature-updater`. The first download may take time and ClamAV download rate limits may apply. Antivirus checks report incomplete protection if signatures are unavailable; archives are not extracted when an enabled antivirus check cannot complete. Do not disable antivirus merely to bypass a readiness failure.
+
+The `app-data` volume contains SQLite, authentication keys, job logs, and full result snapshots. The `rom-storage` volume contains batch metadata, partial uploads, original imports, and processing copies; it is shared by the app and storage containers. The `signatures` volume is updated by the updater and mounted read-only in the application. Each processing root also receives engine `_RomSorter` checkpoints, reports, and recovery journals. Back up the library, application data, and storage volume. Do not run multiple app/storage replicas or the CLI against these roots simultaneously. Do not use `docker compose down -v` unless you intend to destroy the named volumes.
+
+Deleting processed recovery archives is **permanent**, disables extraction undo for those archives, and always requires a fresh verified preview and confirmation. Test with a disposable collection before granting access to important files.
+
+## Bulk imports and temporary ROM storage
+
+Open **Add games**. Use **Upload ROMs / Choose folder** to create a named import session, or open **Import from network share**, create an empty destination import, and connect to an approved server. Backend APIs retain the term `batch` for compatibility. The detailed batch-processing controls below are retained for import inspection and advanced recovery; every import contributes to the same permanent library.
+
+1. **Upload / resume folder:** choose a folder in a Chromium-based browser (Chrome/Edge). Relative folders are retained. Files upload sequentially in chunks of at most **8 MiB**; ROM contents are never buffered as one huge request or ZIP. Progress reports file counts and bytes, and Pause aborts the current request. Reselect the same unchanged folder in the same batch to resume after interruptions/reloads; the server checks relative path, size, and modification time. These identity checks are not a full client-side content hash. Changed files require a new batch. A bounded retry policy handles transient failures; permanent failures stop and are displayed.
+2. **SMB:** connect using server, share, optional domain, username, and password. The server must be explicitly listed in `ROMCHECKER_SMB_HOSTS`. Browse folders, select files/folders or all visible items, and import into an **empty** batch. Up to 1000 selected roots can expand recursively, within the batch limits. Imports are copied read-only from SMB; they never delete, rename, or write to the source share. Progress reflects completed imported files; failures retain completed originals and identify the failed batch.
+
+SMB connections are made by the storage container on TCP **445**, not by the browser. Use a dedicated read-only account. Credentials are used only for live in-memory sessions, are never written to batch metadata/browser storage, and are not passed on command lines. Connection IDs alone are kept in browser session storage. Connections do not survive a storage restart; disconnect when finished. At most eight live connections are allowed, and idle connections can be reclaimed after 30 minutes when opening another connection. SMB1 is not used. Use a trusted private network/VPN: do not assume SMB transport encryption or expose this service to the Internet. DFS referral/cluster setups are not supported by this import flow; use the direct server/share.
+
+Folder uploads automatically prepare the processing copy when complete. For SMB or resumed/failed imports, click **Finish import & detect consoles**. Originals become read-only to the application's import API; a separate physical copy is created under that collection's `processed` folder. This requires space for at least originals **plus** working copies, and additional space for extraction/recovery. Storage & retention shows working-copy size, available disk space, and preparation requirements. Large preparation/import operations run on a bounded background transfer queue, not an HTTP request. Prepared collections are sealed: add more ROMs in a new collection.
+
+### Console grouping, verification, and organization
+
+The guided workspace detects consoles locally, without moving files or claiming verification. Ambiguous formats remain under **Unknown / Needs identification**. Headers/content signatures supplement extension/folder hints; supported descriptors/tracks and companions form selection units.
+
+Choose individual files, **Verify selected**, **Verify console**, or **Verify everything**. Selecting one linked member includes the whole supported disc/companion unit, even across pagination. Antivirus can scan the entire working copy, but only selected/related files receive new verification results. Check progress stays in the console list; per-file results are committed when the operation completes.
+
+- **Verify & organize** runs the configured checks, then automatically moves eligible working copies into console folders. This action explicitly approves those moves; it is not an implicit upload side effect.
+- **Check only** saves findings without moving ROMs.
+- **Custom** exposes check choices. Per-run changes do not overwrite global defaults. Online lookups require acknowledgement of fingerprint/metadata sharing in the verification dialog.
+
+Automatic organization requires a known console, completed local checks, clean security status, no invalid header/internal checksum finding, no conflicting/deferred identity evidence, and an eligible classification. Enabled antivirus and applicable online malware checks must complete. Required reference matches must be present. Without a reference, a supported passing structure/internal check is required when the selected policy permits it. One failed member holds its whole linked unit. BIOS, executables, archives, bad dumps, protected files, and unresolved files are not automatically organized. Duplicate content is reported, not deleted or moved into a duplicates area. Homebrew, translations, hacks, and prototypes can be organized when their evidence passes; they are not automatically treated as malware. Names are not changed, existing destinations are not overwritten, and moves are SHA-256 verified and journaled.
+
+Identity, integrity, local antivirus, online malware checks, and organization outcomes remain separate. File drawers explain console-specific findings for every supported console, including unusual homebrew headers and checks that are unsupported/inconclusive rather than failed. DAT matches, Hasheous matches, and previously unknown files identified use separate counters. Infrastructure failures appear as structured service issues; repeated cache-write errors are aggregated. Online caches are persisted under the application engine data directory.
+
+Use **Expert workspace** for server-library operations, all six layouts, raw results, extraction, move previews, manual review, and recovery. Archive extraction remains an explicitly approved Expert action; packed archives are not automatically expanded by guided verification. Refresh console detection after extraction; legacy file-changing jobs invalidate the guided index so it is rebuilt from current files. Existing collections created before this interface are indexed on opening; previous job reports remain in Activity, while guided verification starts as unchecked until run through the new flow. Rediscovery preserves guided evidence only after fingerprint revalidation.
+
+The selected collection is used by recovery actions; **Use server library instead** returns to the original library. Result-source actions use the snapshot's own batch, and the API rejects cross-batch previews. One engine operation runs at a time across all roots. A persistent collection lease prevents uploads, preparation, downloads, or deletion from racing with processing. App restarts mark jobs interrupted and recover orphaned leases; restarting only storage preserves processing leases. After an interrupted operation, inspect Activity and undo journals, then refresh console detection before retrying.
+
+Download individual current files, organized console folders, or the complete collection as a **streaming ZIP**, including ZIP64 for large outputs. Complete downloads include pending/held files and reports/recovery journals; a console ZIP reflects its current physical folder, not a safety certification. Expert storage browsing provides original/processed trees (200 entries per page). ROM bytes are not collected into memory or a temporary ZIP. Compression is disabled to avoid wasting CPU on already-compressed ROMs. A collection is locked for the duration of a download so processing/deletion cannot change it midway. A failed download must be restarted; ZIP downloads do not support HTTP-range resume.
+
+Defaults: **100,000 files**, **1 TiB original data per batch**, **1 GiB free-space reserve**, **200 retained batches**, and **two simultaneous HTTP transfers** across the storage service. SMB directory listings are bounded to 100,000 entries, paths to 32 levels, and names must be portable across Windows/Linux (no traversal, device names, or links). File contents are streamed; bounded manifests contain metadata only. Limits apply to originals, not a promise about final extraction size; configure archive limits in Settings and monitor disk usage. Disk exhaustion returns an explicit error, retaining originals. Preparation interrupted before completion can be retried; a failed SMB batch can prepare its completed subset or be deleted and re-imported.
+
+**Nothing is automatically deleted, including after a download.** Delete a batch explicitly to permanently remove its originals, processing copies, partial transfers, and recovery journals. Downloading is not proof of a backup. Job history is retained in app data, but deleted batch paths are no longer usable.
+
+The SMB library fetches a directory's metadata before the entry-count check; exceptionally large flat shares can still consume substantial metadata memory. Split those into smaller directories. ROM file contents themselves are always read in bounded blocks.
+
+ZIP exports also cap entry counts at the configured file limit. If extraction or engine reports take an output tree over that limit, download smaller processed subfolders instead.
+
+## Reverse proxies
+
+Terminate HTTPS at your proxy. Preserve the public `Host`, replace client-supplied forwarding headers, and forward `X-Forwarded-Proto` and `X-Forwarded-For`. Do not expose the backend directly to the Internet.
+
+### Dedicated hostname
+
+Use an empty `ROMCHECKER_PATH_BASE` and forward `/` unchanged. Add the public hostname to `ROMCHECKER_ALLOWED_HOSTS` in `.env`, keeping `127.0.0.1` for the healthcheck.
+
+### URL subpath
+
+For `https://roms.example.com/romchecker/`:
+
+```dotenv
+ROMCHECKER_PATH_BASE=/romchecker
+ROMCHECKER_ALLOWED_HOSTS=localhost;127.0.0.1;roms.example.com
+ROMCHECKER_TRUSTED_PROXIES=172.18.0.1
+```
+
+The proxy address above is **only an example**. Configure the exact proxy source IP as seen by the application container; Docker gateways and proxy container addresses differ by deployment. Multiple exact addresses can be comma-separated. Prefer a dedicated, stable proxy address. Never trust arbitrary client networks.
+
+Use the location configuration in [`deploy/nginx.conf`](../deploy/nginx.conf) inside an existing HTTPS server block. It preserves the prefix; **do not strip `/romchecker`**. The app owns its configured prefix and rejects unprefixed requests. Forwarded headers are ignored unless the immediate peer is trusted. `X-Forwarded-Prefix` and `X-Forwarded-Host` are deliberately not used.
+
+Keep proxy buffering disabled for `/api/jobs/.../events`, allow long-lived SSE connections, and disable proxy caching. The example disables buffering for the whole application. Cookies use the configured path and become Secure when HTTPS is correctly forwarded. State-changing requests require a custom same-origin header; cross-origin API access is not enabled.
+
+Allow at least **8 MiB** request bodies (the nginx example uses `9m`), disable request buffering for uploads, and allow long upload/download timeouts. No multi-gigabyte request limit is needed: each upload request is bounded. Route all browser transfers through the app's authenticated `/api/storage/...` gateway; never publish the storage service directly or give its token to the browser.
+
+For Traefik or Caddy, use the same rules: preserve the path and public Host, forward the original scheme, and configure the immediate proxy IP. If a containerized proxy shares a private network with the app, route to `romchecker:8080` rather than host loopback and omit the public port mapping if not needed.
+
+Changing the base path requires a restart and a new sign-in. Always include the prefix when probing `/healthz`.
+
+## Local development
+
+Install .NET **10 LTS SDK**, Node.js **24 LTS**, and PowerShell **7**. The bridge remains compatible with Windows PowerShell 5.1 for local Windows use. ClamAV/7-Zip are optional local dependencies but required for their respective operations.
+
+From `web/client`:
+
+```sh
+npm ci
+npm run build
+```
+
+From the repository root, using PowerShell:
+
+```powershell
+$env:ROMCHECKER_ENGINE = (Get-Location).Path
+$env:ROMCHECKER_LIBRARY = 'C:\ROMs-Test'
+$env:ROMCHECKER_DATA = Join-Path $env:TEMP 'romchecker-dev-data'
+$env:ROMCHECKER_PASSWORD = '<your own strong development password>'
+$env:ASPNETCORE_URLS = 'http://127.0.0.1:5200'
+# For Windows PowerShell instead of pwsh:
+# $env:ROMCHECKER_POWERSHELL = 'powershell.exe'
+dotnet run --project .\web\server
+```
+
+On Linux, export equivalent environment variables and use absolute Linux paths. Data must be **outside** the library. Open `http://127.0.0.1:5200/`.
+
+Batch storage is optional in standalone local mode. To enable it, run the same server assembly in a second terminal with `ROMCHECKER_ROLE=storage`, `ASPNETCORE_URLS=http://127.0.0.1:5201`, `ROMCHECKER_STORAGE_ROOT` pointing outside the legacy library, and a random `ROMCHECKER_STORAGE_TOKEN`. In the app terminal, leave `ROMCHECKER_ROLE` empty and set the same storage root/token plus `ROMCHECKER_STORAGE_URL=http://127.0.0.1:5201`. Both processes must access the same filesystem path. Set `ROMCHECKER_SMB_HOSTS` in the storage terminal, not the browser.
+
+For hot-reloading the UI, run `npm run dev` from `web/client` in another terminal. Vite forwards `/api` to `127.0.0.1:5200`; use an empty base path for development through Vite. The production build is served by ASP.NET Core, without a separate frontend service.
+
+### Feature modules
+
+Processing features remain components inside one application container. An optional **separate storage container** owns transfers, batch lifecycle, SMB connections, and downloads; it is not an independently concurrent engine worker.
+
+| Layer | Module boundaries |
+|---|---|
+| React `web/client/src/features` | Authentication, overview, library and review state, jobs, recovery/cleanup, settings |
+| Shared UI `web/client/src/components` | Accessible dialogs, evidence badges, empty states, progress cards |
+| API `web/server/Features` | Authentication, settings validation, library paths/browsing, jobs, reports/downloads |
+| Engine `web/engine/Features` | Collection detection/selective verification/automatic safe organization, verification, organization/review/apply, archives/cleanup, recovery, combined workflows |
+| Shared infrastructure | SQLite `Store`, serialized `JobService`, isolated PowerShell `Infrastructure/EngineRunner` |
+| Storage `web/server/Features/Storage` | Internal token-authenticated service, upload staging, SMB read-only client, batch preparation/leases, streamed downloads; authenticated app gateway |
+
+`Program.cs` composes endpoint modules and applies authentication, request protection, and reverse-proxy handling centrally. `App.tsx` coordinates navigation and jobs; feature views own presentation, and `library/useLibrary.ts` owns result filters and review drafts. The engine bridge retains common path checks, progress, snapshots, and report generation; handlers reuse the existing CLI analysis engine.
+
+`Features/Jobs/JobActions.cs` explicitly maps each job action to its engine feature and declares confirmation, source-preview, source-settings, and journal requirements. File-changing actions require confirmation and cannot be cancelled by the user. A fixed engine allowlist and action checks select handlers; the browser cannot supply a script or feature path.
+
+There is **one shared engine queue across every feature and batch**. A separate bounded storage transfer queue serializes SMB imports and preparation. Add engine operations to the action registry and appropriate handler, wire their feature UI, and extend API/component coverage. Keep cross-feature flows in `Workflows.ps1` and deployment/proxy configuration shared. Processing leases coordinate the two containers, but this is not a distributed multi-worker scheduler.
+
+### Configuration
+
+| Environment variable | Default / behavior |
+|---|---|
+| `ROMCHECKER_PASSWORD` | Required, at least 16 characters; rotation invalidates existing sessions |
+| `ROMCHECKER_LIBRARY` | `/library`; one mounted root |
+| `ROMCHECKER_DATA` | `/data`; persistent storage, outside the library |
+| `ROMCHECKER_ENGINE` | `/app` in Docker; directory containing `RomSorter.ps1` |
+| `ROMCHECKER_POWERSHELL` | `pwsh`; executable path, never browser-supplied |
+| `ROMCHECKER_WEB_ROOT` | `web/client/dist` below the engine directory |
+| `ROMCHECKER_PATH_BASE` | Empty; optional path such as `/romchecker`, no trailing slash |
+| `ROMCHECKER_TRUSTED_PROXIES` | Empty; explicit IPs, comma-separated, one forwarding hop |
+| `AllowedHosts` | ASP.NET Core hostname allowlist; Compose supplies `ROMCHECKER_ALLOWED_HOSTS` |
+| `ROMCHECKER_JOB_TIMEOUT_HOURS` | `24`; interrupted operations retain recovery journals |
+| `ROMSORTER_VIRUSTOTAL_KEY` | Optional secret; configure on server only |
+| `ROMSORTER_MALWAREBAZAAR_KEY` | Optional secret; configure on server only |
+| `ROMCHECKER_VERSION`, `ROMCHECKER_COMMIT` | Image defaults for external tooling; application identity comes from the baked `/app/build-info.json`, not runtime overrides |
+| `ROMCHECKER_CHECK_UPDATES` | `false`; set `true` to enable same-channel GHCR update checks in Settings; never installs updates |
+| `ROMCHECKER_SCHEDULED_UPDATES` | `false`; with update checks enabled, checks shortly after startup and about every six hours; manual checks remain available |
+| `ROMCHECKER_UPDATE_USERNAME`, `ROMCHECKER_UPDATE_TOKEN` | Optional server-only GHCR package-read credentials for private-package update checks |
+| `ROMCHECKER_STORAGE_URL` | App only; internal storage URL, empty disables batch storage in standalone mode |
+| `ROMCHECKER_ROLE` | `storage` starts only the internal storage service; empty starts the web app |
+| `ROMCHECKER_STORAGE_ROOT` | `/storage`; same path/volume in app and storage, outside the legacy library |
+| `ROMCHECKER_STORAGE_TOKEN` | Required with storage; separate random secret, at least 32 characters |
+| `ROMCHECKER_STORAGE_MAX_BYTES` | Storage only; `1099511627776` original bytes per batch |
+| `ROMCHECKER_STORAGE_MAX_FILES` | Storage only; `100000` original files per batch |
+| `ROMCHECKER_STORAGE_RESERVE_BYTES` | Storage only; `1073741824` minimum free bytes |
+| `ROMCHECKER_SMB_HOSTS` | Comma-separated exact approved SMB hostnames/IPs; empty disables connections. Enforced by storage; also supplied to the app for integration status. |
+
+No keys are exposed through the settings API. Protect the data volume and configuration from other local users. Use the supplied image as a trusted administrative tool: only mount the intended library, never the Docker socket or the host root. Symlink/junction traversal is rejected. Do not allow untrusted processes to alter library paths during file operations.
+
+### Verification
+
+```powershell
+pwsh -NoProfile -File .\RomSorter.Tests.ps1
+dotnet build .\web\server\RomChecker.Web.csproj
+# Build the frontend before API integration tests.
+pwsh -NoProfile -File .\web\tests\Api.Tests.ps1
+pwsh -NoProfile -File .\web\tests\Storage.Tests.ps1
+pwsh -NoProfile -File .\web\tests\CollectionEngine.Tests.ps1
+node .\web\tests\Romm.Tests.mjs
+```
+
+From `web/client`:
+
+```sh
+npm test
+npx playwright install chromium
+npm run test:e2e
+```
+
+The API and browser suites use synthetic ROM fixtures and disposable storage. They exercise actual engine scanning, review, approved moves, and undo under `/roms/`, not mocked engine results. `ROMCHECKER_DOTNET` can select a non-PATH SDK executable for browser tests; the API script has a `-Dotnet` parameter. Container CI also checks boot, subpath routing, authentication, and the non-root runtime.
+
+The storage suite starts both roles and covers upload offsets/restart recovery, zero-byte and multi-chunk files, limits, batch isolation, selected settings, original preservation, leases, and valid streamed ZIPs. CI supplies a read-only Samba fixture and passes `-SmbServer 127.0.0.1` to also exercise real SMB browsing/import. Without that parameter, SMB connection/import integration is not exercised; the server allowlist rejection is still checked.
+
+The unmodified [SMBLibrary](https://github.com/TalAloni/SMBLibrary) dependency is dynamically linked under LGPL-3.0-or-later; its source and license are available from that project and its NuGet package. It can be replaced by a compatible build independently of this application.
+
+## Branches, images, and releases
+
+Development follows:
+
+```text
+feature branch -> development -> beta -> main
+                 dev container prerelease  stable release
+```
+
+- **PRs to all three branches:** quality gates, promotion policy, release-note validation, dependency/container vulnerability gates, Ubuntu and Windows engine regressions, API/storage/RomM integration, Chromium workflows, and container smoke tests.
+- **Successful push to development:** CI, then publish a readable `<next-version>-development.<build-number>` container plus `development` and `development-sha-<commit>` tags, SBOM, and provenance. No Git tag or GitHub release.
+- **Successful delivery on beta:** publish `<version>-beta.<sequence>`, a GitHub **prerelease**, and the `beta` image alias.
+- **Successful delivery on main:** publish a stable version, GitHub **release**, and the `latest` image alias. No additional release PR is required.
+- **Release assets:** feature-focused notes, source commit, exact container digest, machine-readable manifest, checksums, and an image with SBOM/build provenance.
+
+Semantic versions come from immutable release tags, Conventional Commits, and reviewed `.github/release-notes/*.json` entries. `version.txt` is the initial version floor (`0.2.0`); subsequent releases are calculated automatically. The build stamps frontend metadata and `version.txt` without generating commits. Each release has the same version in its Docker labels and application UI. Stable notes accumulate all changes since the previous stable release; beta notes describe changes since the preceding applicable beta/stable tag.
+
+Containers permanently embed version, build number/attempt, channel, commit, UTC build time, workflow URL, and schema version. Settings exposes those details and a credential-free diagnostics download. Database schema checks reject unsupported newer data before workers start; always back up before upgrading because older containers may lack this safeguard. Optional manual update notifications compare only the current channel and never deploy changes. See the [build identity and compatibility guide](DEVELOPMENT.md#build-identity-and-compatibility).
+
+Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
+
+Repository-owner setup is still required:
+
+1. Install these changes on `development`, then promote them to `beta` and `main`. Enable Actions and permit the workflow's repository/package write permissions.
+2. Ensure the GHCR package is linked to this repository and grants its Actions workflows write access.
+3. Require **Required checks**, PRs, resolved conversations, and no force pushes/deletions on all three branches. A safe preview/apply script is provided; private repositories may require GitHub Pro.
+4. Merge emergency `hotfix/*` changes back into development and beta. Feature changes never go directly into release branches.
+
+See **[Development and release guide](DEVELOPMENT.md)** for release-note examples, version rules, protection setup, failure recovery, and deployment/rollback instructions. Adding files does not modify remote settings or publish anything. CI builds Linux amd64 images initially. Delivery is automated; updating a running server remains deliberate, with backups and a defined deployment target.
+
+## Original command-line application
+
+The original `RomSorter.ps1`, its regression suite, and Ubuntu/WSL launcher remain available. Run `powershell -File .\RomSorter.ps1` on Windows or `bash RomSorter.sh` on Ubuntu. The web bridge loads engine definitions without starting CLI menus, executes each job in a separate process, and preserves engine safety checks instead of reimplementing ROM analysis in the browser.
+
+## Integrations
+
+- **Local antivirus:** Docker uses ClamAV; Windows runs use Windows Defender where available.
+- **Online malware lookups:** VirusTotal and MalwareBazaar are optional and configured with server-side API keys.
+- **Reference and metadata checks:** custom DAT files, libretro reference data, and Hasheous checks are supported by the verification engine.
+- **RomM:** optional metadata, artwork, import, and explicit publishing workflows are available under Settings > Connections. Publishing uses a shared export library and RomM's API; it is not a direct ROM upload.
+
+## Security and privacy
+
+- ROM Checker is a **single-administrator application**, not a multi-tenant service. Do not expose it as a public upload service.
+- Online verification services receive hashes and metadata, not ROM contents. RomM publishing is an explicit exception: eligible ROM copies are exported to the RomM instance you configure.
+- The Compose setup binds the application to loopback by default. If using a reverse proxy, configure only its exact trusted source IP and keep the internal storage service private.
+- Keep passwords, API keys, storage tokens, database files, and backups protected. Back up the library, application data, and storage before upgrades or destructive cleanup.
+- Antivirus and reference checks provide evidence, not a safety guarantee. Incomplete protection is reported rather than treated as a clean scan.
+
+See [SECURITY.md](../SECURITY.md) for reporting instructions and [Configuration](#configuration) for deployment details.
+
+## Roadmap
+
+There is no committed feature roadmap or delivery timeline in the repository. Use GitHub Issues to propose and discuss work; releases describe completed changes. Current documented deployment boundaries include Linux amd64 container images, a single application worker, and no automatic deployment to a running host.
+
+## FAQ
+
+### Does ROM Checker upload my ROM files to online verification services?
+
+Optional external verification lookups send hashes and metadata, not ROM contents. Importing files into your self-hosted instance stores them on its configured storage. If you explicitly configure RomM publishing, eligible copies are exported to the shared library used by that RomM instance.
+
+### Does a clean scan prove that a ROM is safe?
+
+No. Authenticity, integrity, antivirus completion, and malware indicators are separate evidence. “No detections” does not guarantee that a file is safe.
+
+### Does ROM Checker automatically move or delete files?
+
+No import automatically publishes or organizes files. **Verify & organize** is an explicit action; Expert workspace changes require preview and confirmation. Cleanup of processed archives is permanent and requires a fresh verified preview.
+
+### Is this a multi-user service?
+
+No. The web application is designed for one administrator and one canonical library.
+
+### Which license applies?
+
+ROM Checker is licensed under the GNU Affero General Public License v3.0; see [License](#license).
+
+## Contributing
+
+Please read [CONTRIBUTING.md](../CONTRIBUTING.md) before opening a change. The project uses feature branches targeting `development`, Conventional Commit titles, focused regression tests, and release-note entries for meaningful changes.
+
+## License
+
+ROM Checker is licensed under the [GNU Affero General Public License v3.0](../LICENSE). Third-party components and assets may have their own licenses.

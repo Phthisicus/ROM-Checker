@@ -1,0 +1,322 @@
+﻿[
+    {
+        "Key":  "SNES",
+        "Name":  "Super Nintendo / Super Famicom",
+        "Folder":  "SNES"
+    },
+    {
+        "Key":  "NES",
+        "Name":  "Nintendo NES / Famicom",
+        "Folder":  "NES"
+    },
+    {
+        "Key":  "FDS",
+        "Name":  "Famicom Disk System",
+        "Folder":  "FDS"
+    },
+    {
+        "Key":  "GB",
+        "Name":  "Game Boy",
+        "Folder":  "GB"
+    },
+    {
+        "Key":  "GBC",
+        "Name":  "Game Boy Color",
+        "Folder":  "GBC"
+    },
+    {
+        "Key":  "GBA",
+        "Name":  "Game Boy Advance",
+        "Folder":  "GBA"
+    },
+    {
+        "Key":  "N64",
+        "Name":  "Nintendo 64",
+        "Folder":  "N64"
+    },
+    {
+        "Key":  "NDS",
+        "Name":  "Nintendo DS",
+        "Folder":  "NDS"
+    },
+    {
+        "Key":  "3DS",
+        "Name":  "Nintendo 3DS",
+        "Folder":  "3DS"
+    },
+    {
+        "Key":  "VB",
+        "Name":  "Virtual Boy",
+        "Folder":  "VirtualBoy"
+    },
+    {
+        "Key":  "POKEMINI",
+        "Name":  "Pokemon Mini",
+        "Folder":  "PokemonMini"
+    },
+    {
+        "Key":  "MD",
+        "Name":  "Mega Drive / Genesis",
+        "Folder":  "MegaDrive"
+    },
+    {
+        "Key":  "32X",
+        "Name":  "Sega 32X",
+        "Folder":  "32X"
+    },
+    {
+        "Key":  "SMS",
+        "Name":  "Master System",
+        "Folder":  "MasterSystem"
+    },
+    {
+        "Key":  "GG",
+        "Name":  "Game Gear",
+        "Folder":  "GameGear"
+    },
+    {
+        "Key":  "SG1000",
+        "Name":  "Sega SG-1000",
+        "Folder":  "SG-1000"
+    },
+    {
+        "Key":  "PCE",
+        "Name":  "PC Engine / TurboGrafx-16",
+        "Folder":  "PCEngine"
+    },
+    {
+        "Key":  "A2600",
+        "Name":  "Atari 2600",
+        "Folder":  "Atari2600"
+    },
+    {
+        "Key":  "A5200",
+        "Name":  "Atari 5200",
+        "Folder":  "Atari5200"
+    },
+    {
+        "Key":  "A7800",
+        "Name":  "Atari 7800",
+        "Folder":  "Atari7800"
+    },
+    {
+        "Key":  "LYNX",
+        "Name":  "Atari Lynx",
+        "Folder":  "Lynx"
+    },
+    {
+        "Key":  "JAGUAR",
+        "Name":  "Atari Jaguar",
+        "Folder":  "Jaguar"
+    },
+    {
+        "Key":  "WS",
+        "Name":  "WonderSwan",
+        "Folder":  "WonderSwan"
+    },
+    {
+        "Key":  "WSC",
+        "Name":  "WonderSwan Color",
+        "Folder":  "WonderSwanColor"
+    },
+    {
+        "Key":  "NGP",
+        "Name":  "Neo Geo Pocket",
+        "Folder":  "NeoGeoPocket"
+    },
+    {
+        "Key":  "NGPC",
+        "Name":  "Neo Geo Pocket Color",
+        "Folder":  "NeoGeoPocketColor"
+    },
+    {
+        "Key":  "COLECO",
+        "Name":  "ColecoVision",
+        "Folder":  "ColecoVision"
+    },
+    {
+        "Key":  "INTV",
+        "Name":  "Intellivision",
+        "Folder":  "Intellivision"
+    },
+    {
+        "Key":  "VECTREX",
+        "Name":  "Vectrex",
+        "Folder":  "Vectrex"
+    },
+    {
+        "Key":  "MSX",
+        "Name":  "MSX / MSX2",
+        "Folder":  "MSX"
+    },
+    {
+        "Key":  "MAME",
+        "Name":  "Arcade - MAME",
+        "Folder":  "MAME"
+    },
+    {
+        "Key":  "FBNEO",
+        "Name":  "Arcade - FinalBurn Neo",
+        "Folder":  "FBNeo"
+    },
+    {
+        "Key":  "NEOGEO",
+        "Name":  "SNK Neo Geo AES / MVS",
+        "Folder":  "NeoGeo"
+    },
+    {
+        "Key":  "NAOMI",
+        "Name":  "Sega Naomi",
+        "Folder":  "Naomi"
+    },
+    {
+        "Key":  "NAOMI2",
+        "Name":  "Sega Naomi 2",
+        "Folder":  "Naomi2"
+    },
+    {
+        "Key":  "ATOMISWAVE",
+        "Name":  "Sammy Atomiswave",
+        "Folder":  "Atomiswave"
+    },
+    {
+        "Key":  "ARCADE",
+        "Name":  "Arcade - unidentified platform",
+        "Folder":  "Arcade"
+    },
+    {
+        "Key":  "C64",
+        "Name":  "Commodore 64 / 128",
+        "Folder":  "Commodore64"
+    },
+    {
+        "Key":  "VIC20",
+        "Name":  "Commodore VIC-20",
+        "Folder":  "VIC20"
+    },
+    {
+        "Key":  "PLUS4",
+        "Name":  "Commodore Plus/4 / C16",
+        "Folder":  "Plus4"
+    },
+    {
+        "Key":  "AMIGA",
+        "Name":  "Commodore Amiga",
+        "Folder":  "Amiga"
+    },
+    {
+        "Key":  "CPC",
+        "Name":  "Amstrad CPC",
+        "Folder":  "AmstradCPC"
+    },
+    {
+        "Key":  "GX4000",
+        "Name":  "Amstrad GX4000",
+        "Folder":  "GX4000"
+    },
+    {
+        "Key":  "ATARI8",
+        "Name":  "Atari 8-bit computers",
+        "Folder":  "Atari8bit"
+    },
+    {
+        "Key":  "ATARIST",
+        "Name":  "Atari ST / STE / TT / Falcon",
+        "Folder":  "AtariST"
+    },
+    {
+        "Key":  "ZX",
+        "Name":  "Sinclair ZX Spectrum",
+        "Folder":  "ZXSpectrum"
+    },
+    {
+        "Key":  "X68000",
+        "Name":  "Sharp X68000",
+        "Folder":  "X68000"
+    },
+    {
+        "Key":  "PC98",
+        "Name":  "NEC PC-98",
+        "Folder":  "PC98"
+    },
+    {
+        "Key":  "NEOGEOCD",
+        "Name":  "SNK Neo Geo CD",
+        "Folder":  "NeoGeoCD"
+    },
+    {
+        "Key":  "CD32",
+        "Name":  "Commodore Amiga CD32",
+        "Folder":  "AmigaCD32"
+    },
+    {
+        "Key":  "CDTV",
+        "Name":  "Commodore CDTV",
+        "Folder":  "CDTV"
+    },
+    {
+        "Key":  "SEGACD",
+        "Name":  "Sega CD / Mega-CD",
+        "Folder":  "SegaCD"
+    },
+    {
+        "Key":  "SATURN",
+        "Name":  "Sega Saturn",
+        "Folder":  "Saturn"
+    },
+    {
+        "Key":  "DC",
+        "Name":  "Sega Dreamcast",
+        "Folder":  "Dreamcast"
+    },
+    {
+        "Key":  "PCECD",
+        "Name":  "PC Engine CD / TurboGrafx-CD",
+        "Folder":  "PCEngineCD"
+    },
+    {
+        "Key":  "PS1",
+        "Name":  "PlayStation",
+        "Folder":  "PS1"
+    },
+    {
+        "Key":  "PS2",
+        "Name":  "PlayStation 2",
+        "Folder":  "PS2"
+    },
+    {
+        "Key":  "PSP",
+        "Name":  "PlayStation Portable",
+        "Folder":  "PSP"
+    },
+    {
+        "Key":  "GC",
+        "Name":  "Nintendo GameCube",
+        "Folder":  "GameCube"
+    },
+    {
+        "Key":  "WII",
+        "Name":  "Nintendo Wii",
+        "Folder":  "Wii"
+    },
+    {
+        "Key":  "WIIU",
+        "Name":  "Nintendo Wii U",
+        "Folder":  "WiiU"
+    },
+    {
+        "Key":  "SWITCH",
+        "Name":  "Nintendo Switch",
+        "Folder":  "Switch"
+    },
+    {
+        "Key":  "XBOX",
+        "Name":  "Microsoft Xbox",
+        "Folder":  "Xbox"
+    },
+    {
+        "Key":  "3DO",
+        "Name":  "3DO Interactive Multiplayer",
+        "Folder":  "3DO"
+    }
+]

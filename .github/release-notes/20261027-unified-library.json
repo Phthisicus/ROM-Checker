@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "One permanent library and controlled RomM integration",
+  "description": "Browse ROMs from every managed import in one console-grouped library. Library browsing, imports, background activity, integrations, and settings now have separate navigation. Check individual files, a console, a category, or the full library. Review independent identity, integrity, security, organization, and publication findings without leaving the library. RomM integration adds exact-fingerprint metadata linking, optional artwork, incoming imports, eligible-only publishing previews, durable retries, and opt-in automatic publishing.",
+  "upgrade": "Existing import manifests are indexed into the permanent catalog without relocating or deleting originals. Older verification evidence may require a new check before meeting the stricter publication policy. Back up application data and storage before upgrading.",
+  "limitations": "RomM publishing currently requires a shared export directory mounted into RomM plus a compatible API and platform mappings. The integration has protocol-fixture coverage, not validation against a real installed RomM instance. No remote deletion or automatic checksum repair is performed."
+}

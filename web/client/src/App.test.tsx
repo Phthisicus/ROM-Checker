@@ -1,0 +1,73 @@
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { describe, expect, it, vi } from 'vitest'
+import { api, bytes } from './api'
+import App from './App'
+import { Badge, Modal } from './components/Presentation'
+
+describe('web workspace', () => {
+  it('keeps incomplete protection visually distinct from verified results', () => {
+    render(<><Badge value="Incomplete" /><Badge value="Original" /><Badge value="Malicious" /><Badge value="completed-with-errors" /></>)
+    expect(screen.getByText('Incomplete')).toHaveClass('warning')
+    expect(screen.getByText('Original')).toHaveClass('success')
+    expect(screen.getByText('Malicious')).toHaveClass('danger')
+    expect(screen.getByText('completed with errors')).toHaveClass('danger')
+  })
+  it('renders an accessible modal and close action', () => {
+    const close = vi.fn()
+    render(<Modal title="Apply changes?" close={close}><p>Nothing moves without confirmation.</p></Modal>)
+    expect(screen.getByRole('dialog', { name: 'Apply changes?' })).toHaveAttribute('open')
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }))
+    expect(close).toHaveBeenCalledOnce()
+  })
+  it('requires sign-in and shows incorrect password errors', async () => {
+    const fetcher = vi.fn().mockImplementation(() => Promise.resolve(Response.json({ error: 'Invalid password.' }, { status: 401 })))
+    vi.stubGlobal('fetch', fetcher)
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('Administrator password'), { target: { value: 'incorrect' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Invalid password.')
+    expect(fetcher.mock.calls.some(([path]) => path === '/api/login')).toBe(true)
+  })
+  it('opens the workspace after sign-in and never starts a scan automatically', async () => {
+    let signedIn = false
+    const fetcher = vi.fn(async (path: string) => {
+      if (path === '/api/login') { signedIn = true; return Response.json({ authenticated: true }) }
+      if (path === '/api/session') return Response.json({ authenticated: signedIn }, { status: signedIn ? 200 : 401 })
+      if (path === '/api/jobs') return Response.json([])
+      if (path === '/api/info') return Response.json({ version: '0.2.0', channel: 'stable', buildNumber: 142, library: '/library' })
+      if (path === '/api/updates/status') return Response.json({ status: 'available', message: 'New version available.' })
+      if (path === '/api/storage/config') return Response.json({ enabled: true })
+      if (path === '/api/storage/batches') return Response.json([])
+      if (path === '/api/romm/links') return Response.json([])
+      if (path.startsWith('/api/catalog?')) return Response.json({ items: [], total: 0, filtered: 0, page: 1, size: 100, groups: [], ids: [], categories: [], counts: {} })
+      throw new Error(`Unexpected request ${path}`)
+    })
+    vi.stubGlobal('fetch', fetcher)
+    render(<App />)
+    fireEvent.change(await screen.findByLabelText('Administrator password'), { target: { value: 'fixture-only-password' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    expect(await screen.findByRole('heading', { name: 'Library' })).toBeInTheDocument()
+    const version = await screen.findByRole('button', { name: /System & updates: 0.2.0, stable, update available/ })
+    expect(version).toHaveAttribute('data-frontend-version', __APP_VERSION__)
+    expect(version).toHaveTextContent('v0.2.0 · stable')
+    expect(version).toHaveAttribute('title', expect.stringContaining('Build 142'))
+    expect(screen.queryByRole('button', { name: 'Integrations' })).not.toBeInTheDocument()
+    fireEvent.click(within(screen.getByRole('navigation', { name: 'Main navigation' })).getByRole('button', { name: 'Add games' }))
+    await waitFor(() => expect(screen.getByRole('button', { name: /Upload ROMs/ })).toBeEnabled())
+    expect(screen.queryByRole('button', { name: /Check library/ })).not.toBeInTheDocument()
+    expect(fetcher.mock.calls.filter(([path]) => path === '/api/jobs')).toHaveLength(1)
+  })
+  it('sends same-origin credentials and the mutation protection header', async () => {
+    const fetcher = vi.fn().mockResolvedValue(Response.json({ ok: true }))
+    vi.stubGlobal('fetch', fetcher)
+    await api('/jobs', { method: 'POST', body: '{"action":"scan"}' })
+    expect(fetcher).toHaveBeenCalledWith('/api/jobs', expect.objectContaining({
+      credentials: 'same-origin', headers: expect.objectContaining({ 'X-RomChecker': '1' }),
+    }))
+  })
+  it('formats byte quantities without misleading units', () => {
+    expect(bytes(0)).toBe('0 B')
+    expect(bytes(1024)).toBe('1.0 KB')
+    expect(bytes(1024 ** 3)).toBe('1.0 GB')
+  })
+})

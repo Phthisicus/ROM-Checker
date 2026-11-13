@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Keep application checks independent of npm cache quotas",
+  "description": "Application CI now installs dependencies without restoring or saving the optional GitHub Actions npm cache, avoiding cache-service egress quota warnings and restore delays. Lockfile-based dependency installation and every existing quality gate remain enabled."
+}

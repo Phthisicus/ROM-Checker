@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "Running version, offline release notes and channel-aware update notifications",
+  "description": "Open System & updates from the bottom-left running-version label. Global Settings now includes detailed build, container runtime and storage information, offline installed release notes, available-release notes and sanitized diagnostics. Optional scheduled GHCR checks share cached results, stay on the installed channel and clearly identify stale results after failures. Development images publish release metadata without creating GitHub releases.",
+  "upgrade": "Update checks remain disabled by default. Set ROMCHECKER_CHECK_UPDATES=true for manual checks and also ROMCHECKER_SCHEDULED_UPDATES=true for checks about every six hours. Back up data and storage before manually pulling and recreating services; exact-version or digest pins must be changed explicitly.",
+  "limitations": "Notifications never deploy updates or switch channels. Runtime information describes the container or application process, not the Docker host. Cached check history resets when the application restarts. Older published images without companion metadata may have unavailable release notes."
+}

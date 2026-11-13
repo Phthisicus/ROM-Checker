@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Correct the scanner action tag used by CI and container delivery",
+  "description": "Dependency audits and container scans now reference the published v0.36.0 Trivy action tag, fixing workflow initialization failures caused by the missing v prefix. Vulnerability gates and Node.js 24 runtime compatibility remain enabled."
+}

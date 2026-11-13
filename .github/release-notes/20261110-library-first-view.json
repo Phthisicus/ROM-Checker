@@ -1,0 +1,6 @@
+{
+  "type": "improvement",
+  "title": "Make the collection easier to scan at a glance",
+  "description": "The Library landing page now foregrounds ROM totals, check and publication queues, and console-level checked and attention counts. Search and display controls use a compact, consistent layout while cover browsing, filters, saved views, selection, verification, RomM publishing, and file details remain available.",
+  "limitations": "Artwork availability still depends on linked RomM metadata. Other application pages have not been redesigned."
+}

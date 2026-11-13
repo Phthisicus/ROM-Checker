@@ -1,0 +1,300 @@
+import { test, expect } from '@playwright/test'
+
+const systemDetails = {
+  system: { scope: 'Container', operatingSystem: 'Linux', architecture: 'X64', runtime: '.NET 10',
+    startedUtc: '2026-11-11T12:00:00Z', uptimeSeconds: 60 },
+  release: { notes: 'Fixture release notes.', upgradeNotes: [], limitations: [] },
+  paths: { library: '/library', data: '/data', engine: '/app', pathBase: '' },
+  updates: { enabled: false, scheduled: false }
+}
+const updateStatus = { status: 'disabled', message: 'Update checks are disabled.' }
+
+test('Connections opens per-integration settings and guards unsaved navigation', async ({ page }) => {
+  const requests: string[] = []
+  await page.route('**/api/**', async route => {
+    const path = new URL(route.request().url()).pathname.replace('/api', '')
+    requests.push(path)
+    let data: unknown = []
+    if (path === '/session') data = { authenticated: true }
+    else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
+    else if (path === '/settings/integrations') data = { approvedSmbHosts: [] }
+    else if (path === '/settings') data = { autoDat: false, hasheous: 'Off', onlineCheck: 'Off', identifyUnknown: false, defenderScan: true }
+    else if (path === '/romm/config') data = {
+      configured: true, url: 'http://fixture:8080', platformMappings: [], autoPublish: false,
+    }
+    else if (path === '/romm/publish-options') data = { consoles: [], regions: [], categories: [], imports: [] }
+    await route.fulfill({ json: data })
+  })
+  await page.goto('/#/settings/connections')
+  await expect(page.getByRole('heading', { name: 'Connections', exact: true })).toBeVisible()
+  await expect(page.getByText('Configured', { exact: true })).toBeVisible()
+  await expect(page.getByLabel('API token')).toHaveCount(0)
+  expect(requests).not.toContain('/romm/jobs')
+  expect(requests).not.toContain('/romm/links')
+  expect(requests).not.toContain('/romm/conflicts')
+  await page.getByRole('link', { name: 'Open RomM settings' }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByRole('heading', { name: 'RomM settings' })).toBeVisible()
+  const breadcrumb = page.getByRole('navigation', { name: 'Breadcrumb', exact: true })
+  await expect(breadcrumb).toContainText('Your collectionSettingsConnectionsRomM')
+  expect(await breadcrumb.evaluate(element => getComputedStyle(element).flexDirection)).toBe('row')
+  expect(await breadcrumb.evaluate(element => getComputedStyle(element).flexWrap)).toBe('nowrap')
+  await expect(page.getByRole('navigation', { name: 'Integration breadcrumb' })).toHaveCount(0)
+  await page.reload()
+  await expect(page.getByLabel('API token')).toBeVisible()
+  await page.getByLabel('RomM URL').fill('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.dismiss())
+  await breadcrumb.getByRole('link', { name: 'Connections', exact: true }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.dismiss())
+  await page.evaluate(() => { history.back() })
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://unsaved:8080')
+  page.once('dialog', dialog => dialog.accept())
+  await page.getByRole('button', { name: 'Preferences & server' }).click()
+  await expect(page).toHaveURL(/#\/settings$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await expect(page.getByLabel('RomM URL')).toHaveValue('http://fixture:8080')
+  await breadcrumb.getByRole('link', { name: 'Connections', exact: true }).click()
+  await expect(page).toHaveURL(/settings\/connections$/)
+  await page.goBack()
+  await expect(page).toHaveURL(/settings\/connections\/romm$/)
+  await page.goForward()
+  await expect(page).toHaveURL(/settings\/connections$/)
+  await page.goto('/#/settings/connections/missing')
+  await expect(page.getByRole('heading', { name: 'Integration not found' })).toBeVisible()
+})
+
+test('RomM checkbox rules preserve selections, distinguish draft actions, and fit mobile screens', async ({ page }) => {
+  let config = {
+    url: 'http://romm-fixture:8080', configured: true, autoPublish: false,
+    platformMappings: [{ console: 'NES', platformId: 1, slug: 'nes' }],
+    publishRules: { referenceRequirement: 'eligible', consoles: [], categories: [], regions: ['Europe'],
+      batchIds: ['missing-import'], allowFilenameRegions: false, includeUnknownRegions: false },
+    sync: { autoImport: false, platformIds: [], refreshMetadata: false, intervalMinutes: 60 },
+  }
+  const writes: { path: string; body: Record<string, unknown> }[] = []
+  await page.route('**/api/**', async route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname.replace('/api', '')
+    let data: unknown = []
+    if (request.method() !== 'GET') writes.push({ path, body: request.postDataJSON() ?? {} })
+    if (path === '/session') data = { authenticated: true }
+    else if (path === '/info') data = { version: 'fixture' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
+    else if (path === '/romm/config') {
+      if (request.method() === 'PUT') config = { ...config, ...request.postDataJSON() }
+      data = config
+    } else if (path === '/romm/publish-options') data = {
+      consoles: ['NES', 'SNES'], categories: ['Original', 'Translations', 'PD_Homebrew_Unlicensed'],
+      regions: ['Europe', 'USA'], imports: [{ id: 'a', name: 'A very long import name that should wrap without widening the page' }],
+    }
+    else if (path === '/romm/auto-publish/preview') data = {
+      total: 0, matched: 0, ready: 0, excluded: 0, pending: 0, linked: 0, failed: 0, page: 1, size: 25, items: [],
+    }
+    await route.fulfill({ json: data })
+  })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await page.goto('/#/settings/connections/romm')
+  const save = page.getByRole('button', { name: 'Save RomM settings' })
+  await expect(save).toHaveCount(1)
+  await expect(page.getByRole('checkbox', { name: 'missing-import (not currently available)' })).toBeChecked()
+  const categories = page.getByRole('group', { name: 'Game categories' })
+  await categories.getByRole('radio', { name: 'Selected game categories' }).check()
+  await expect(save).toBeDisabled()
+  const original = categories.getByRole('checkbox', { name: 'Original' })
+  await original.focus()
+  await original.press('Space')
+  await expect(original).toBeChecked()
+  await categories.getByRole('searchbox').fill('trans')
+  await categories.getByRole('button', { name: 'Select all shown' }).click()
+  await categories.getByRole('searchbox').fill('')
+  await expect(original).toBeChecked()
+  await expect(categories.getByRole('checkbox', { name: 'Translations' })).toBeChecked()
+  await expect(categories.getByText('2 selected')).toBeVisible()
+  await page.getByRole('button', { name: 'Preview draft publishing rules' }).click()
+  await expect(page.getByRole('status')).toContainText('0 games')
+  expect(writes.map(write => write.path)).toEqual(['/romm/auto-publish/preview'])
+  const regions = page.getByRole('group', { name: 'Regions' })
+  await regions.getByRole('button', { name: 'Clear selection' }).click()
+  await expect(save).toBeDisabled()
+  await expect(page.getByRole('button', { name: 'Preview draft publishing rules' })).toBeDisabled()
+  await regions.getByRole('radio', { name: 'Any regions' }).check()
+  await expect(save).toBeEnabled()
+  const interval = page.getByLabel('Sync interval (minutes)')
+  await interval.fill('0')
+  await save.click()
+  expect(writes.some(write => write.path === '/romm/config')).toBe(false)
+  await interval.fill('30')
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(categories.getByRole('checkbox', { name: 'PD Homebrew Unlicensed' })).toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+  await save.click()
+  await expect(page.getByText(/All settings saved/)).toBeVisible()
+  expect(config.publishRules).toMatchObject({ categories: ['Original', 'Translations'], regions: [], batchIds: ['missing-import'] })
+  expect(config.sync).toMatchObject({ autoImport: false, platformIds: [], intervalMinutes: 30 })
+  expect(config.autoPublish).toBe(false)
+})
+
+test('collection redesign keeps scoped checks and publication safe, with URLs, advanced tools and mobile navigation', async ({ page }) => {
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  page.on('console', message => {
+    if (message.type() === 'error') errors.push(message.text())
+  })
+  page.on('response', response => {
+    if (response.status() >= 400) errors.push(`${response.status()} ${response.url()}`)
+  })
+  const posts: { path: string; body: Record<string, unknown> }[] = []
+  const first = { id: 'a:game', batchId: 'a', collectionId: 'game', fileName: 'Verified.nes', console: 'NES', consoleName: 'Nintendo Entertainment System', category: 'Original', relativePath: 'NES\\Verified.nes', length: 40976, sha256: 'abc123', checkedUtc: '2026-10-27T12:00:00Z', checkStatus: 'checked', referenceStatus: 'matched', integrityStatus: 'Valid', security: 'Clean', organization: 'Organized', publishEligible: true, evidence: { Publisher: 'Local fixture' }, syncStatus: 'not-published' }
+  const second = { ...first, id: 'b:game', batchId: 'b', fileName: 'Unchecked.nes', checkedUtc: '', checkStatus: 'unchecked', referenceStatus: 'unknown', publishEligible: false, publishBlockReason: 'Unchecked', sha256: '' }
+  const catalog = { items: [first, second], total: 2, filtered: 2, page: 1, size: 100, ids: [first.id, second.id], categories: ['Original'], groups: [{ key: 'NES', name: first.consoleName, total: 2, checked: 1, attention: 1, ids: [first.id, second.id] }], counts: { checked: 1, unchecked: 1, attention: 1, eligible: 1 } }
+  const config = { url: 'http://romm-fixture:8080', configured: true, platformMappings: [{ console: 'NES', platformId: 1, slug: 'nes' }], autoPublish: false, exportRoot: 'D:\\verified-export', transport: 'shared-library' }
+  await page.route('**/api/**', async route => {
+    const request = route.request()
+    const path = new URL(request.url()).pathname.replace('/api', '')
+    if (request.method() !== 'GET') posts.push({ path, body: request.postDataJSON() ?? {} })
+    let data: unknown
+    if (path === '/session') data = { authenticated: true }
+    else if (path === '/info') data = { version: 'fixture', buildNumber: 142, library: 'D:\\library' }
+    else if (path === '/system') data = systemDetails
+    else if (path === '/updates/status') data = updateStatus
+    else if (path === '/jobs' || path === '/catalog/verifications' || path === '/romm/jobs' || path.endsWith('/history')) data = []
+    else if (path === '/romm/publish-options') data = { consoles: [], regions: [], categories: [], imports: [] }
+    else if (path === '/romm/conflicts') data = []
+    else if (path === '/romm/links') data = [{ entryId: first.id, rommId: 7, status: 'linked', metadata: { name: 'Verified adventure', summary: 'A locally linked RomM game description.', metadatum: { genres: ['Adventure'] } } }]
+    else if (path.startsWith('/romm/artwork/')) {
+      await route.fulfill({ contentType: 'image/svg+xml', body: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1 1"><path fill="#fff" d="M0 0h1v1H0z"/></svg>' })
+      return
+    }
+    else if (path === '/catalog') {
+      expect(new URL(request.url()).searchParams.get('attention')).not.toBe('')
+      data = catalog
+    }
+    else if (path === '/catalog/a%3Agame' || path === '/catalog/a:game') data = first
+    else if (path === '/catalog/b%3Agame' || path === '/catalog/b:game') data = second
+    else if (path.endsWith('/copies')) data = [path.includes('a') ? first : second]
+    else if (path === '/settings/integrations') data = { approvedSmbHosts: [] }
+    else if (path === '/consoles') data = []
+    else if (path === '/settings') data = { autoDat: false, hasheous: 'Off', onlineCheck: 'Off', identifyUnknown: false, defenderScan: true }
+    else if (path === '/catalog/verify') data = { id: 'verification', status: 'queued' }
+    else if (path === '/romm/config' && request.method() === 'PUT') { await route.fulfill({ status: 204 }); return }
+    else if (path === '/romm/config') data = config
+    else if (path === '/romm/test') data = { version: '4.0-fixture', compatible: true, capabilities: { scans: true }, platforms: [{ id: 1, name: 'NES', slug: 'nes' }] }
+    else if (path === '/romm/preview') data = { selected: 2, eligible: [{ id: first.id, fileName: first.fileName }], blocked: [{ id: second.id, fileName: second.fileName, reason: 'Unchecked' }] }
+    else if (path === '/romm/publish') data = { id: 'publication', status: 'queued' }
+    else if (path === '/storage/config') data = { enabled: true }
+    else if (path === '/storage/batches') data = []
+    else { await route.fulfill({ status: 404, json: { error: `Unexpected fixture route: ${path}` } }); return }
+    await route.fulfill({ json: data })
+  })
+  await page.goto('/')
+  const navigation = page.getByRole('navigation', { name: 'Main navigation' })
+  await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'All ROMs', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Browse consoles', exact: true })).toBeVisible()
+  await expect(page.getByRole('group', { name: 'Collection views' })).toContainText('All ROMs 2')
+  await expect(page.getByRole('button', { name: /Nintendo Entertainment System.*2 ROM files.*1 checked.*1 need attention/ })).toBeVisible()
+  await expect(page.locator('#main-content').getByRole('button', { name: 'Add games', exact: true })).toBeVisible()
+  await page.screenshot({ path: test.info().outputPath('library-home-dark.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(await page.locator('.console-shelf').evaluate(element => getComputedStyle(element).gridTemplateColumns.trim().split(/\s+/).length)).toBe(1)
+  for (const name of ['Check status', 'Sort library'])
+    expect((await page.getByRole('combobox', { name }).boundingBox())!.width).toBeGreaterThan(100)
+  await page.screenshot({ path: test.info().outputPath('library-home-mobile.png'), fullPage: true })
+  await page.setViewportSize({ width: 1280, height: 900 })
+  await expect(navigation.getByRole('button')).toHaveCount(4)
+  await expect(page.getByRole('button', { name: 'Detailed results', exact: true })).toHaveCount(0)
+  await expect(page.getByRole('img', { name: `No cover available for ${second.fileName}` })).toBeVisible()
+  await page.getByRole('button', { name: /Nintendo Entertainment System.*ROM files/ }).click()
+  await expect(page).toHaveURL(/console=NES/)
+  await page.getByRole('button', { name: 'Open library filters' }).click()
+  await page.getByRole('combobox', { name: 'RomM sync', exact: true }).selectOption('linked')
+  await page.getByRole('button', { name: 'Show results' }).click()
+  await page.getByRole('combobox', { name: 'Sort library' }).selectOption('name-desc')
+  await page.getByRole('button', { name: 'List view' }).click()
+  await page.getByRole('button', { name: first.fileName, exact: true }).click()
+  await expect(page.getByRole('dialog')).toContainText('A locally linked RomM game description.')
+  await expect(page.getByRole('dialog')).toContainText('Eligible to publish')
+  await expect(page.getByRole('dialog').getByText('Evidence, hashes & current location')).toHaveCount(0)
+  const bookmark = page.url()
+  await page.reload()
+  await expect(page.getByRole('dialog')).toBeVisible()
+  await expect(page).toHaveURL(bookmark)
+  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await expect(page.getByRole('combobox', { name: 'Sort library' })).toHaveValue('name-desc')
+  await page.goBack()
+  await expect(page.getByRole('combobox', { name: 'Sort library' })).toHaveValue('name')
+  await page.goForward()
+  await expect(page.getByRole('combobox', { name: 'Sort library' })).toHaveValue('name-desc')
+  await page.getByRole('button', { name: 'Select page' }).click()
+  await page.getByRole('button', { name: 'Check selected' }).click()
+  await page.getByRole('button', { name: 'Queue verification' }).click()
+  await expect(page.getByRole('status')).toContainText('Verification queued')
+  await expect(page.getByRole('heading', { name: 'Library', exact: true })).toBeVisible()
+  expect(posts.find(post => post.path === '/catalog/verify')?.body.ids).toEqual(catalog.ids)
+  expect(posts.find(post => post.path === '/catalog/verify')?.body).not.toHaveProperty('batchId')
+  await page.getByRole('button', { name: 'Select page' }).click()
+  await page.getByRole('button', { name: 'Publish to RomM…' }).click()
+  const dialog = page.getByRole('dialog')
+  await expect(dialog).toContainText('1 eligible · 1 blocked')
+  await expect(dialog.getByRole('button', { name: 'Publish eligible copies' })).toBeDisabled()
+  await dialog.getByRole('checkbox').check()
+  await dialog.getByRole('button', { name: 'Publish eligible copies' }).click()
+  await expect(dialog).toHaveCount(0)
+  expect(posts.find(post => post.path === '/romm/publish')?.body).toEqual({ ids: [first.id], confirm: true })
+  await navigation.getByRole('button', { name: 'Settings', exact: true }).click()
+  await page.getByRole('button', { name: 'Connections', exact: true }).click()
+  await expect(page).toHaveURL(/settings\/connections/)
+  await page.getByRole('link', { name: 'Open RomM settings' }).click()
+  await expect(page).toHaveURL(/settings\/connections\/romm/)
+  await expect(page.getByLabel('API token')).toHaveValue('')
+  await page.getByRole('button', { name: 'Save RomM settings' }).click()
+  await expect(page.getByRole('status')).toContainText('RomM settings saved')
+  expect(posts.find(post => post.path === '/romm/config')?.body).not.toHaveProperty('token')
+  await page.getByRole('button', { name: 'Test saved connection' }).click()
+  await expect(page.getByText('Connected · RomM 4.0-fixture')).toBeVisible()
+  await page.getByRole('switch', { name: 'Advanced mode' }).check()
+  await expect(page.getByRole('navigation', { name: 'Advanced tools' })).toBeVisible()
+  await navigation.getByRole('button', { name: 'Library', exact: true }).click()
+  await page.getByRole('button', { name: first.fileName, exact: true }).click()
+  await page.getByText('Evidence, hashes & current location').click()
+  await expect(page.getByRole('dialog')).toContainText('Local fixture')
+  await page.getByRole('button', { name: 'Close dialog' }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(0)
+  await expect(page).not.toHaveURL(/file=/)
+  await page.getByRole('switch', { name: 'Advanced mode' }).uncheck()
+  await page.getByRole('button', { name: 'Cover grid' }).click()
+  await page.evaluate(() => { document.getElementById('main-content')?.focus(); window.scrollTo(0, 0) })
+  await page.screenshot({ path: test.info().outputPath('collection-dark.png'), fullPage: true })
+  await page.setViewportSize({ width: 390, height: 844 })
+  await expect(navigation).not.toBeVisible()
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true)
+  expect(await page.locator('#main-content').getByRole('button', { name: 'Add games', exact: true }).boundingBox()).not.toBeNull()
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  await expect(navigation).toBeVisible()
+  await page.keyboard.press('Shift+Tab')
+  await expect(page.getByRole('button', { name: /System & updates: fixture/ })).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(navigation).not.toBeVisible()
+  await expect(page.getByRole('button', { name: 'Open navigation' })).toBeFocused()
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  await navigation.getByRole('button', { name: 'Add games', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Import history' })).toBeVisible()
+  await page.getByRole('button', { name: 'Open navigation' }).click()
+  await navigation.getByRole('button', { name: 'Library', exact: true }).click()
+  await expect(page).toHaveURL(/sort=name-desc/)
+  await expect(page).toHaveURL(/syncStatus=linked/)
+  await page.screenshot({ path: test.info().outputPath('collection-mobile.png'), fullPage: true })
+  await page.getByRole('button', { name: 'Use light theme' }).click()
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await expect(page.locator('html')).toHaveAttribute('data-theme', 'light')
+  await page.screenshot({ path: test.info().outputPath('collection-light.png'), fullPage: true })
+  expect(errors).toEqual([])
+})

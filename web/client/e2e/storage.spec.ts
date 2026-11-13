@@ -1,0 +1,48 @@
+import { test, expect } from '@playwright/test'
+import { mkdir, writeFile, rm } from 'node:fs/promises'
+import { join, resolve } from 'node:path'
+
+test('guided collections group consoles, verify selections, organize and download under a subpath', async ({ page }) => {
+  const fixtureDirectory = resolve(test.info().outputPath('upload-fixture'))
+  const errors: string[] = []
+  page.on('pageerror', error => errors.push(error.message))
+  try {
+    const folder = join(fixtureDirectory, 'Games')
+    await mkdir(folder, { recursive: true })
+    const fixture = Buffer.alloc(40976)
+    fixture.set([0x4e, 0x45, 0x53, 0x1a, 2, 1])
+    await writeFile(join(folder, 'Uploaded fixture.nes'), fixture)
+    await page.goto('./')
+    await page.getByLabel('Administrator password').fill('browser-fixture-password')
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    await expect(page.getByRole('heading', { name: 'Library', level: 1 })).toBeVisible()
+    await page.getByRole('switch', { name: 'Advanced mode' }).check()
+    await page.getByRole('navigation', { name: 'Main navigation' }).getByRole('button', { name: 'Add games', exact: true }).click()
+    await page.getByLabel('Import name', { exact: false }).fill('Browser upload import')
+    await page.getByLabel('Upload ROM folder').setInputFiles(folder)
+    await expect(page.getByRole('button', { name: 'Verify everything' })).toBeEnabled({ timeout: 60_000 })
+    await expect(page.getByRole('button', { name: 'Uploaded fixture.nes', exact: false }).first()).toBeVisible()
+    await page.getByRole('checkbox', { name: 'Select Uploaded fixture.nes' }).check()
+    await page.getByRole('button', { name: 'Verify selected' }).click()
+    const dialog = page.getByRole('dialog')
+    await dialog.getByText('Advanced checks', { exact: true }).click()
+    for (const name of ['Scan with local antivirus', 'Download console reference lists', 'Identify unknown files online', 'Require a reference match to organize'])
+      await dialog.getByRole('checkbox', { name, exact: true }).uncheck()
+    await dialog.getByLabel('Online identity', { exact: true }).selectOption('Off')
+    await dialog.getByRole('button', { name: 'Verify & organize working copies' }).click()
+    await expect(page.getByRole('link', { name: 'Console ZIP' })).toBeVisible({ timeout: 60_000 })
+    await page.getByRole('button', { name: /Uploaded fixture.nes/ }).first().click()
+    await expect(page.getByRole('dialog')).toContainText('Disabled')
+    await expect(page.getByRole('dialog')).toContainText('Organized')
+    await page.getByRole('button', { name: 'Close dialog' }).click()
+    const download = page.waitForEvent('download')
+    await page.getByRole('link', { name: 'Console ZIP' }).click()
+    expect((await download).suggestedFilename()).toMatch(/^roms-.*\.zip$/)
+    await page.setViewportSize({ width: 390, height: 844 })
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true)
+    await page.getByRole('button', { name: 'Delete import', exact: true }).click()
+    await page.getByRole('button', { name: 'Permanently delete this import' }).click()
+    await expect(page.getByRole('button', { name: /Upload ROMs/ })).toBeVisible()
+    expect(errors).toEqual([])
+  } finally { await rm(fixtureDirectory, { recursive: true, force: true }) }
+})

@@ -1,0 +1,241 @@
+name: CI
+on:
+  pull_request:
+    branches: [development, beta, main]
+    types: [opened, synchronize, reopened, edited, ready_for_review]
+  workflow_call:
+permissions:
+  contents: read
+env:
+  DOCKER_BUILD_RECORD_UPLOAD: 'false'
+jobs:
+  release-policy:
+    name: Release policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Release automation regressions
+        run: node --test .github/release-tools/release.test.mjs
+      - name: Validate release-note entries
+        run: node .github/release-tools/release.mjs validate
+      - name: Check PR promotion and title
+        if: github.event_name == 'pull_request'
+        env:
+          PR_BASE: ${{ github.base_ref }}
+          PR_HEAD: ${{ github.head_ref }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
+          PR_BASE_REPO: ${{ github.repository }}
+        run: node .github/release-tools/policy.mjs
+      - name: Require append-only release notes on feature and hotfix PRs
+        if: github.event_name == 'pull_request' && (github.base_ref == 'development' || startsWith(github.head_ref, 'hotfix/'))
+        env:
+          TARGET: ${{ github.base_ref }}
+        run: node .github/release-tools/release.mjs validate "origin/$TARGET"
+      - name: Check workflow definitions
+        run: |
+          docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
+  dependencies:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - name: Audit direct and transitive NuGet packages
+        run: |
+          dotnet restore web/server/RomChecker.Web.csproj
+          dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
+          cat "$RUNNER_TEMP/nuget-audit.json"
+          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
+      - uses: aquasecurity/trivy-action@v0.36.0
+        env:
+          TRIVY_INCLUDE_DEV_DEPS: 'true'
+        with:
+          scan-type: fs
+          scanners: vuln
+          scan-ref: .
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+  application:
+    name: Application and engine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Engine regressions
+        shell: pwsh
+        run: ./RomSorter.Tests.ps1
+      - name: Build API
+        run: dotnet build web/server/RomChecker.Web.csproj
+      - name: Frontend build and tests
+        working-directory: web/client
+        run: |
+          npm ci
+          npm run build
+          npm test
+      - name: API integration
+        shell: pwsh
+        run: ./web/tests/Api.Tests.ps1
+      - name: Collection engine and cache regressions
+        shell: pwsh
+        run: ./web/tests/CollectionEngine.Tests.ps1
+      - name: Canonical library regressions
+        run: dotnet run --project web/tests/Catalog.Tests
+      - name: Build identity, schema compatibility and channel updates
+        run: dotnet run --project web/tests/Build.Tests
+      - name: RomM protocol fixture integration
+        run: node web/tests/Romm.Tests.mjs
+      - name: Start read-only SMB fixture
+        run: bash web/tests/start-smb-fixture.sh
+      - name: Storage, bulk transfers and SMB integration
+        shell: pwsh
+        run: ./web/tests/Storage.Tests.ps1 -SmbServer 127.0.0.1
+      - name: Install browser
+        working-directory: web/client
+        run: npx playwright install --with-deps chromium
+      - name: Browser workflows under a proxy subpath
+        working-directory: web/client
+        run: |
+          npm run test:e2e
+          npm run test:e2e:catalog
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: browser-failure
+          path: web/client/test-results/
+  windows-engine:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v7
+      - name: Windows PowerShell compatibility
+        shell: powershell
+        run: .\RomSorter.Tests.ps1
+  container:
+    name: Container smoke test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+      - name: Prepare release metadata for the proposed merge
+        id: candidate
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPOSITORY: ${{ github.repository }}
+          TARGET: ${{ github.base_ref }}
+        run: |
+          sha="$(git rev-parse HEAD)"
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "built_utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+          if [ "$TARGET" = development ]; then
+            echo "channel=development" >> "$GITHUB_OUTPUT"
+            node .github/release-tools/release.mjs development "$sha" "$REPOSITORY" "$GITHUB_RUN_NUMBER"
+          else
+            mkdir -p .release
+            gh api --paginate "repos/$REPOSITORY/releases?per_page=100" --jq '.[] | select(.draft == false) | .tag_name' > .release/published-tags.txt
+            node .github/release-tools/release.mjs plan "$TARGET" "$sha" "$REPOSITORY" .release .release/published-tags.txt
+            node .github/release-tools/release.mjs stamp .release/release-plan.json
+            if [ "$TARGET" = main ]; then echo "channel=stable" >> "$GITHUB_OUTPUT"; else echo "channel=beta" >> "$GITHUB_OUTPUT"; fi
+          fi
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/build-push-action@v7
+        if: github.event_name != 'pull_request'
+        with:
+          context: .
+          load: true
+          tags: romchecker:test
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - uses: docker/build-push-action@v7
+        if: github.event_name == 'pull_request'
+        with:
+          context: .
+          load: true
+          tags: romchecker:test
+          build-args: |
+            VERSION=${{ steps.candidate.outputs.version }}
+            REVISION=${{ steps.candidate.outputs.sha }}
+            BUILD_NUMBER=${{ github.run_number }}
+            BUILD_ATTEMPT=${{ github.run_attempt }}
+            CHANNEL=${{ steps.candidate.outputs.channel }}
+            BUILT_UTC=${{ steps.candidate.outputs.built_utc }}
+            WORKFLOW_URL=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Container vulnerability gate
+        uses: aquasecurity/trivy-action@v0.36.0
+        with:
+          image-ref: romchecker:test
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
+      - name: Verify proposed release metadata and runtime
+        if: github.event_name == 'pull_request'
+        env:
+          VERSION: ${{ steps.candidate.outputs.version }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.sha }}
+        run: bash .github/release-tools/smoke-image.sh romchecker:test "$VERSION" "$SOURCE_SHA"
+      - name: Verify non-root runtime, subpath, and authentication
+        run: |
+          docker network create romchecker-ci-network
+          docker run -d --name rom-storage-ci --network romchecker-ci-network \
+            -v romchecker-storage-ci:/storage \
+            -e ROMCHECKER_ROLE=storage \
+            -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment romchecker:test
+          bash .github/release-tools/wait-for-http.sh rom-storage-ci http://127.0.0.1:8080/healthz container
+          docker run -d --name romchecker-ci --network romchecker-ci-network -p 127.0.0.1:8080:8080 \
+            -v romchecker-storage-ci:/storage \
+            -e ROMCHECKER_STORAGE_URL=http://rom-storage-ci:8080 \
+            -e ROMCHECKER_STORAGE_TOKEN=ci-fixture-only-storage-token-not-for-deployment \
+            -e ROMCHECKER_PASSWORD=ci-fixture-only-password \
+            -e ROMCHECKER_PATH_BASE=/roms romchecker:test
+          bash .github/release-tools/wait-for-http.sh romchecker-ci http://127.0.0.1:8080/roms/healthz
+          curl --fail http://127.0.0.1:8080/roms/ | grep 'content="/roms"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:8080/roms/api/jobs)" = 401
+          test "$(docker exec romchecker-ci id -u)" = 10001
+          docker exec romchecker-ci pwsh -NoProfile -Command '$PSVersionTable.PSVersion.ToString()'
+          curl --fail -c "$RUNNER_TEMP/romchecker-cookies" -H 'X-RomChecker: 1' \
+            -H 'Content-Type: application/json' --data '{"password":"ci-fixture-only-password"}' \
+            http://127.0.0.1:8080/roms/api/login
+          curl --fail -b "$RUNNER_TEMP/romchecker-cookies" http://127.0.0.1:8080/roms/api/storage/batches | grep '\[\]'
+      - name: Container logs
+        if: always()
+        run: |
+          docker logs romchecker-ci || true
+          docker logs rom-storage-ci || true
+  required:
+    name: Required checks
+    if: always()
+    needs: [release-policy, dependencies, application, windows-engine, container]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Require every quality gate
+        env:
+          RESULTS: ${{ toJSON(needs) }}
+        run: |
+          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
