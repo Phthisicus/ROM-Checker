@@ -1,0 +1,5 @@
+{
+  "type": "maintenance",
+  "title": "Build the frontend with the Node.js 26 container image",
+  "description": "Update the frontend build stage from Node.js 24 Alpine to Node.js 26 Alpine. Node.js is used to compile browser assets; the final application container continues to use the existing .NET runtime image."
+}
