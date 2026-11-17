@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test'
+import { releaseInfo } from '../../../.github/release-tools/release.mjs'
 
 const systemDetails = {
   system: { scope: 'Container', operatingSystem: 'Linux', architecture: 'X64', runtime: '.NET 10',
@@ -8,6 +9,68 @@ const systemDetails = {
   updates: { enabled: false, scheduled: false }
 }
 const updateStatus = { status: 'disabled', message: 'Update checks are disabled.' }
+
+for (const channel of ['stable', 'beta']) {
+  test(`${channel} release notes remain readable in both themes and on narrow screens`, async ({ page }) => {
+    const beta = channel === 'beta'
+    const version = beta ? '1.4.0-beta.3' : '1.4.0'
+    const release = releaseInfo({
+      version, tag: `v${version}`, branch: beta ? 'beta' : 'main', prerelease: beta,
+      repository: 'Phthisicus/ROM-Checker', image: 'ghcr.io/phthisicus/rom-checker',
+      sha: 'a'.repeat(40), baseline: beta ? 'v1.4.0-beta.2' : 'v1.3.0',
+      notes: [
+        { type: 'feature', title: 'Explore your console library', description: 'Browse games without interrupting active checks.',
+          upgrade: 'Back up before changing versions.', testing: ['Check a console and review its results.'],
+          limitations: 'Artwork requires linked metadata.', knownIssues: 'Some artwork loads slowly.' },
+        { type: 'maintenance', title: 'Predictable build runners', description: 'Pin runners for predictable builds.' }
+      ],
+      commits: [{ hash: 'a'.repeat(40), subject: 'feat: explore your console library' }]
+    })
+    await page.route('**/api/**', async route => {
+      const path = new URL(route.request().url()).pathname.replace('/api', '')
+      let data: unknown = []
+      if (path === '/session') data = { authenticated: true }
+      else if (path === '/info') data = { version, channel, commit: 'a'.repeat(40) }
+      else if (path === '/system') data = { ...systemDetails, release }
+      else if (path === '/updates/status') data = { status: 'available', message: 'A new version is available.',
+        result: { status: 'available', version, release } }
+      else if (path === '/settings/integrations') data = { approvedSmbHosts: [] }
+      else if (path === '/settings') data = { console: 'All' }
+      await route.fulfill({ json: data })
+    })
+    await page.goto('/#/settings')
+    await page.getByText('Installed release notes', { exact: true }).click()
+    await page.getByText(`Available release notes (${version})`, { exact: true }).click()
+    const notes = page.getByRole('region', { name: 'Installed release notes', exact: true })
+    await expect(notes.getByRole('heading', { name: `ROM Checker ${version}`, exact: false })).toBeVisible()
+    await expect(notes.getByRole('heading', { name: 'What to test', exact: false })).toHaveCount(beta ? 1 : 0)
+    await expect(notes.getByRole('listitem').filter({ hasText: 'Predictable build runners' })).toHaveCount(1)
+    await expect(notes.getByRole('heading', { name: 'Known issues', exact: false })).toHaveCount(1)
+    await expect(page.getByRole('region', { name: `Available release notes (${version})`, exact: true })).toContainText('Artwork requires linked metadata.')
+    await expect(page.locator('.release-requirements li')).toHaveText(['Back up before changing versions.'])
+    for (const theme of ['dark', 'light']) {
+      await page.evaluate(value => { document.documentElement.dataset.theme = value }, theme)
+      for (const width of [1280, 320]) {
+        await page.setViewportSize({ width, height: 900 })
+        expect(await notes.evaluate(element => element.scrollWidth <= element.clientWidth)).toBe(true)
+        const bounds = await notes.boundingBox()
+        expect(bounds!.x).toBeGreaterThanOrEqual(0)
+        expect(bounds!.x + bounds!.width).toBeLessThanOrEqual(width)
+      }
+      const contrast = await notes.evaluate(element => {
+        const style = getComputedStyle(element)
+        const luminance = (color: string) => color.match(/[\d.]+/g)!.slice(0, 3).map(Number)
+          .map(value => value / 255).map(value => value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4)
+          .reduce((sum, value, index) => sum + value * [.2126, .7152, .0722][index], 0)
+        const values = [luminance(style.color), luminance(style.backgroundColor)].sort((a, b) => b - a)
+        return (values[0] + .05) / (values[1] + .05)
+      })
+      expect(contrast).toBeGreaterThanOrEqual(4.5)
+    }
+    await notes.focus()
+    await expect(notes).toBeFocused()
+  })
+}
 
 test('Connections opens per-integration settings and guards unsaved navigation', async ({ page }) => {
   const requests: string[] = []

@@ -1,0 +1,10 @@
+{
+  "type": "improvement",
+  "title": "Clearer release notes for every stage of your next session",
+  "description": "Stable releases present the complete release story with feature highlights, while beta patch notes focus on incremental changes and authored testing checks. Maintenance, upgrade instructions and cautions use readable bullets, with security and breaking changes up front. Later betas retain upgrade requirements and unresolved cautions from the preview cycle. The in-app reader displays safely formatted notes in light and dark themes.",
+  "testing": [
+    "Open installed and available release notes in System & updates on desktop and a narrow screen, in both light and dark themes.",
+    "Compare successive beta notes: confirm only new changes and testing prompts appear while earlier upgrade requirements and unresolved cautions remain visible."
+  ],
+  "limitations": "The new layouts apply to newly generated releases and images. Previously published releases and image-baked notes are unchanged. Existing limitation entries are not automatically reclassified as confirmed defects."
+}

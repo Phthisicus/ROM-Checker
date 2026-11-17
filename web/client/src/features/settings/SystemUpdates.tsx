@@ -1,9 +1,14 @@
 import { useEffect, useState } from 'react'
 import { api, url, type Info, type ReleaseInfo, type SystemDetails, type UpdateStatus } from '../../api'
+import ReleaseNotes from './ReleaseNotes'
 
 function Notes({ release, title }: { release: ReleaseInfo; title: string }) {
+  const missingLimitations = release.limitations.filter(text => !release.notes.includes(text))
+  const missingIssues = (release.knownIssues ?? []).filter(text => !release.notes.includes(text))
   return <details><summary>{title}</summary>
-    <pre className="release-notes">{release.notes}</pre>
+    <ReleaseNotes notes={release.notes} label={title} />
+    {missingIssues.length > 0 && <div><h4>Known issues</h4><ul>{missingIssues.map(text => <li key={text}>{text}</li>)}</ul></div>}
+    {missingLimitations.length > 0 && <div><h4>Known limitations</h4><ul>{missingLimitations.map(text => <li key={text}>{text}</li>)}</ul></div>}
     {release.releaseUrl && <a href={release.releaseUrl} target="_blank" rel="noreferrer">View source release</a>}
   </details>
 }
@@ -67,8 +72,7 @@ export default function SystemUpdates({ info, fail, onUpdate, updateStatus }: {
     {result?.notesError && <p role="alert">{result.notesError}</p>}
     {result?.release && <>
       <Notes release={result.release} title={`Available release notes (${result.version})${status?.stale ? ' - stale result' : ''}`} />
-      {result.release.upgradeNotes.length > 0 && <div><h4>Upgrade requirements</h4>{result.release.upgradeNotes.map(text => <p key={text}>{text}</p>)}</div>}
-      {result.release.limitations.length > 0 && <div><h4>Known limitations</h4>{result.release.limitations.map(text => <p key={text}>{text}</p>)}</div>}
+      {result.release.upgradeNotes.length > 0 && <div className="release-requirements"><h3>Upgrade requirements</h3><ul>{result.release.upgradeNotes.map(text => <li key={text}>{text}</li>)}</ul></div>}
     </>}
     <p className="small">Back up application data, ROM storage and configuration before upgrading. Matching database schemas do not guarantee safe upgrades or rollback; review the release notes. Older images may require a matching database backup.</p>
     <p className="small">To upgrade manually, pull your configured image and recreate the services through Docker Compose or your deployment manager. A restart alone does not update a container. Keep application, storage and signature-updater versions aligned.</p>

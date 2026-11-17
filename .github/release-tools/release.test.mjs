@@ -116,6 +116,12 @@ test('release validation rejects unknown superseded limitations', () => {
     assert.match(invalid.stderr, /Unknown superseded limitation/)
     writeFileSync(join(notes, 'old.json'), JSON.stringify({ ...feature, limitations: 'An old limitation.' }))
     assert.equal(run().status, 0)
+    writeFileSync(join(notes, 'resolved.json'), JSON.stringify({ ...feature, resolvesKnownIssues: ['An unknown defect.'] }))
+    const invalidIssue = run()
+    assert.notEqual(invalidIssue.status, 0)
+    assert.match(invalidIssue.stderr, /Unknown resolved issue/)
+    writeFileSync(join(notes, 'issue.json'), JSON.stringify({ ...feature, knownIssues: 'An unknown defect.' }))
+    assert.equal(run().status, 0)
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 test('notes include user-facing highlights, upgrade cautions, limitations and reproducible container identity', () => {
@@ -123,7 +129,7 @@ test('notes include user-facing highlights, upgrade cautions, limitations and re
     image: 'ghcr.io/owner/repo', baseline: 'v1.2.3', notes: [{ ...feature, upgrade: 'Map your consoles.', limitations: 'Shared storage is required.' }],
     commits: [{ hash: sha, subject: 'feat: add scoped checks' }] }
   const result = renderNotes(plan, 'sha256:' + 'c'.repeat(64))
-  for (const text of ['Beta prerelease', '## ✨ New unlocks — Features', feature.description, 'Map your consoles.', 'Shared storage is required.',
+  for (const text of ['Beta prerelease', '## ✨ Changes in this beta', feature.description, 'Map your consoles.', 'Shared storage is required.',
     'ghcr.io/owner/repo:1.3.0-beta.1', 'sha256:', 'v1.2.3...v1.3.0-beta.1', 'Commit history'])
     assert.ok(result.includes(text), text)
   const stable = renderNotes({ ...plan, prerelease: false, notes: [] }, 'sha256:' + 'c'.repeat(64))
@@ -139,8 +145,8 @@ test('playful patch notes keep channel warnings, safety information and technica
     image: 'ghcr.io/owner/repo', notes: [feature, breaking, security],
     commits: [{ hash: sha, subject: 'fix: restrict unauthorized access' }] }
   const stable = renderNotes(plan, 'sha256:' + 'c'.repeat(64))
-  for (const text of ['# 🎮 ROM Checker 1.3.0 — Patch notes', '**Stable release',
-    'ROM-checking loadout', '## ⚠️ Breaking changes\n\n### Storage format changes',
+  for (const text of ['# 🎮 ROM Checker 1.3.0 — Release notes', '**Stable release',
+    'ROM-checking loadout', '## ⚠️ Breaking changes\n\n- **Storage format changes:**',
     '## 🛡️ Security', security.description, breaking.upgrade,
     'Back up application data, ROM storage, and configuration.',
     'Rollback may require restoring the matching data backup.',
@@ -155,7 +161,61 @@ test('playful patch notes keep channel warnings, safety information and technica
   assert.ok(development.includes('Welcome to the workshop!'))
   assert.ok(!development.includes('Beta prerelease'))
   assert.deepEqual(releaseInfo(plan).upgradeNotes, [breaking.upgrade])
-  assert.equal(releaseInfo(plan).notes, renderNotes(plan))
+  assert.equal(releaseInfo(plan).notes, renderNotes(plan, null, { embedded: true }))
+  assert.ok(!releaseInfo(plan).notes.includes('<details>'))
+})
+test('compact channel layouts preserve instructions, prioritize warnings and omit unprovided testing', () => {
+  const maintenance = { ...feature, type: 'maintenance', title: 'Predictable build runners', description: 'Pin runner versions for predictable builds.' }
+  const security = { ...feature, type: 'security', title: 'Restrict unsafe requests' }
+  const breaking = { ...feature, type: 'breaking', title: 'Migrate saved settings', upgrade: 'Back up settings.\nMigrate before restarting.' }
+  const notes = [feature, maintenance, security, breaking,
+    { ...feature, type: 'fix', title: 'Repair interrupted checks', upgrade: breaking.upgrade }]
+  const plan = { ...input, version: '1.3.0', tag: 'v1.3.0', repository: 'owner/repo',
+    image: 'ghcr.io/owner/repo', baseline: 'v1.2.0', notes, commits: [] }
+  const stable = renderNotes(plan)
+  assert.ok(stable.indexOf('## 🛡️ Security') < stable.indexOf('## ✨ New unlocks'))
+  assert.ok(stable.indexOf('## ⚠️ Breaking') < stable.indexOf('## ✨ New unlocks'))
+  assert.ok(stable.includes('### Console-scoped verification'))
+  assert.ok(stable.includes('- **Predictable build runners:** Pin runner versions'))
+  assert.ok(!stable.includes('### Predictable build runners'))
+  assert.ok(stable.includes('- **Migrate saved settings:** Back up settings.\n  Migrate before restarting.'))
+  assert.equal(stable.split('Migrate before restarting.').length - 1, 1)
+  assert.ok(stable.includes('previous stable release; includes changes previewed in betas'))
+  assert.ok(!stable.includes('What to test'))
+  const betaPlan = { ...plan, branch: 'beta', prerelease: true, version: '1.3.0-beta.2',
+    notes: [{ ...feature, testing: ['Check one console and review its results.'] }] }
+  const beta = renderNotes(betaPlan)
+  assert.ok(beta.startsWith('# 🧪 ROM Checker 1.3.0-beta.2 — Beta patch notes'))
+  assert.ok(beta.includes('previous applicable beta or stable release'))
+  assert.ok(beta.includes('## 🎯 What to test\n\n- Check one console'))
+  assert.ok(beta.includes('## ⬆️ Before you test'))
+  assert.ok(!renderNotes({ ...betaPlan, notes: [feature] }).includes('What to test'))
+  assert.ok(!renderNotes({ ...plan, notes: betaPlan.notes }).includes('What to test'))
+  const empty = renderNotes({ ...plan, notes: [] })
+  for (const heading of ['New unlocks', 'Bug fixes', 'Maintenance', 'Known limitations', 'Known issues', 'What to test'])
+    assert.ok(!empty.includes(heading), heading)
+})
+test('authored beta checks and known issues are validated without guessing legacy limitations', () => {
+  assert.doesNotThrow(() => validateNote({ ...feature, testing: ['Check the saved console filter.'], knownIssues: 'Some artwork may load slowly.' }))
+  assert.doesNotThrow(() => validateNote({ ...feature, resolvesKnownIssues: ['Some artwork may load slowly.'] }))
+  assert.doesNotThrow(() => validateNote({ ...feature, resolvesKnownIssues: ['Crash.'] }))
+  for (const change of [{ testing: 'Check the filter.' }, { testing: [] }, { testing: ['short'] },
+    { testing: ['Check the filter.', ' Check the filter. '] }, { knownIssues: [] },
+    { resolvesKnownIssues: [] }, { resolvesKnownIssues: [''] },
+    { knownIssues: 'An active defect.', resolvesKnownIssues: ['An active defect.'] }])
+    assert.throws(() => validateNote({ ...feature, ...change }))
+  const old = { ...feature, knownIssues: 'Some artwork may load slowly.', limitations: 'Requires shared storage.' }
+  const fix = { ...feature, type: 'fix', resolvesKnownIssues: [old.knownIssues] }
+  const plan = { ...input, version: '1.3.0-beta.2', branch: 'beta', prerelease: true,
+    tag: 'v1.3.0-beta.2', repository: 'owner/repo', image: 'ghcr.io/owner/repo', notes: [fix], safetyNotes: [old, fix] }
+  const result = releaseInfo(plan)
+  assert.deepEqual(result.knownIssues, [])
+  assert.deepEqual(result.limitations, [old.limitations])
+  assert.ok(!result.notes.includes(old.knownIssues))
+  assert.ok(result.notes.includes('## ⚠️ Known limitations'))
+  const unresolved = releaseInfo({ ...plan, safetyNotes: [old] })
+  assert.deepEqual(unresolved.knownIssues, [old.knownIssues])
+  assert.ok(unresolved.notes.includes('## 🐛 Known issues\n\n- ' + old.knownIssues))
 })
 test('promotion policy accepts feature work and same-repository promotions, rejects bypasses', () => {
   const path = resolve('.github/release-tools/policy.mjs')
@@ -399,7 +459,10 @@ test('real git history yields incremental beta notes and cumulative stable notes
     const run = (...args) => execFileSync(process.execPath, [join(scripts, 'release.mjs'), ...args], { cwd: directory, encoding: 'utf8' })
     git('init', '--quiet'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Release fixture')
     git('add', '.'); git('commit', '--quiet', '-m', 'chore: initial fixture'); git('tag', 'v1.0.0')
-    writeFileSync(join(notes, 'feature.json'), JSON.stringify(feature))
+    const previewFeature = { ...feature, upgrade: 'Back up before changing preview versions.',
+      limitations: 'Requires shared storage.', knownIssues: 'Some artwork loads slowly.',
+      testing: ['Check a console and review its results.'] }
+    writeFileSync(join(notes, 'feature.json'), JSON.stringify(previewFeature))
     git('add', '.'); git('commit', '--quiet', '-m', 'feat: console scoped checks')
     const first = git('rev-parse', 'HEAD')
     assert.equal(run('development', first, 'owner/repo', '142').trim(), '1.1.0-development.142')
@@ -413,12 +476,24 @@ test('real git history yields incremental beta notes and cumulative stable notes
     run('plan', 'beta', second, 'owner/repo')
     assert.equal(read().version, '1.1.0-beta.2')
     assert.equal(read().notes.length, 1)
+    assert.equal(read().safetyNotes.length, 2)
+    const betaInfo = JSON.parse(readFileSync(join(directory, 'release-info.json'), 'utf8'))
+    assert.ok(!betaInfo.notes.includes('### Console-scoped verification'))
+    assert.ok(!betaInfo.notes.includes('What to test'), 'Do not repeat testing prompts from an earlier beta')
+    assert.deepEqual(betaInfo.upgradeNotes, [previewFeature.upgrade])
+    assert.deepEqual(betaInfo.limitations, [previewFeature.limitations])
+    assert.deepEqual(betaInfo.knownIssues, [previewFeature.knownIssues])
+    assert.ok(betaInfo.notes.includes(previewFeature.knownIssues))
     git('tag', 'v1.1.0-beta.2')
     run('plan', 'beta', second, 'owner/repo')
     assert.equal(read().version, '1.1.0-beta.2')
     run('plan', 'main', second, 'owner/repo')
     assert.equal(read().version, '1.1.0')
     assert.equal(read().notes.length, 2)
+    const stableInfo = JSON.parse(readFileSync(join(directory, 'release-info.json'), 'utf8'))
+    assert.ok(stableInfo.notes.includes('### Console-scoped verification'))
+    assert.ok(!stableInfo.notes.includes('What to test'))
+    assert.deepEqual(stableInfo.knownIssues, [previewFeature.knownIssues])
     const publishedPath = join(directory, 'published-tags.txt')
     writeFileSync(publishedPath, 'v1.0.0\n')
     run('plan', 'beta', second, 'owner/repo', '.release', publishedPath)

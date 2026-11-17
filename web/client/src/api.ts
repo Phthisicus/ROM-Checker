@@ -39,7 +39,7 @@ export type Info = {
 }
 export type ReleaseInfo = {
   metadataFormatVersion: number; version: string; channel: string; commit: string; releaseUrl?: string
-  notes: string; upgradeNotes: string[]; limitations: string[]
+  notes: string; upgradeNotes: string[]; limitations: string[]; knownIssues?: string[]
 }
 export type SystemDetails = {
   system: { scope: string; operatingSystem: string; architecture: string; runtime: string; startedUtc: string; uptimeSeconds: number }

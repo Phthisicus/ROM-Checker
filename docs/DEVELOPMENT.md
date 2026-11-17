@@ -52,31 +52,53 @@ Add a uniquely named JSON file under `.github/release-notes/` to each meaningful
   "title": "Check a console without interrupting library browsing",
   "description": "Select an individual ROM, a console, a category, or the full library. Verification runs in Activity while results remain visible alongside each file.",
   "upgrade": "Existing files are retained. Run verification to populate new evidence fields.",
-  "limitations": "Related tracks and companion files are checked together."
+  "limitations": "Related tracks and companion files are checked together.",
+  "testing": ["Check one console and confirm that other consoles keep their existing results."]
 }
 ```
 
 Allowed types: `feature`, `improvement`, `fix`, `performance`, `security`, `breaking`, `maintenance`. Title and description are required; upgrade/limitations are optional except that breaking changes **must** include upgrade instructions. Entries are append-only and retained for stable-release aggregation; do not delete them after a beta. Avoid secrets, personal data, unverified claims, and raw technical commit titles as feature descriptions.
 
+Optional `testing` is a nonempty array of distinct, actionable checks (8-4000 characters each). It appears only in the beta's **What to test** section, never in stable notes. Only checks attached to the current beta's changes are shown; the generator does not invent checks or repeat earlier testing prompts.
+
+Use optional `knownIssues` (a string, up to 4000 characters) for a confirmed unresolved defect, not an intentional product limitation. Existing `limitations` entries retain their meaning and are not automatically reclassified. To resolve an issue, add a new entry with `resolvesKnownIssues`, a nonempty array containing the exact previously reported issue text. Validation rejects unknown references and reporting the same issue as both active and resolved. Fixed bugs, active issues, and product limitations have separate sections.
+
 When a limitation becomes outdated, add a new entry with a replacement `limitations`
 text and a `supersedesLimitations` array containing the exact old limitation text.
 The replacement must preserve any cautions that still apply. Validation rejects
 unknown references; the old entry remains unchanged. Generated release notes and
-embedded metadata omit superseded limitations when both entries are in the same
-release range. Previously published releases remain unchanged.
+embedded metadata omit superseded limitations when both entries are in the safety
+context described below. Previously published releases remain unchanged.
 
-Use a friendly, lightly gaming-themed patch-note voice in new entries: describe the actual user benefit first, then add a little personality. The shared template supplies one emoji per section heading and channel-specific introductions for both GitHub and embedded notes. Occasional feature-title emojis are welcome; avoid emoji-heavy sentences, full roleplay, or claims such as "flawless protection." Keep security disclosures, breaking changes, backup/migration instructions, and limitations factual and explicit. Keep versions, image tags, commands, and English Conventional Commit subjects unchanged and emoji-free. Do not rewrite published entries or releases just to change their tone.
+Use a friendly, lightly gaming-themed patch-note voice in new entries: describe the actual user benefit first, then add a little personality. The shared template supplies one emoji per section heading and channel-specific introductions for both GitHub and embedded notes. Avoid emoji-heavy sentences, full roleplay, or claims such as "flawless protection." Keep security disclosures, breaking changes, backup/migration instructions, and limitations factual and explicit. Keep versions, image tags, commands, and English Conventional Commit subjects unchanged and emoji-free. Do not rewrite published entries or releases just to change their tone.
 
-The release template renders:
+### Channel layouts
 
-1. Clear stable/beta/development identity and a short gaming-themed introduction.
-2. Main feature highlights and user benefits.
-3. Improvements, fixes, security changes, and maintenance, with breaking changes in their own explicit section.
-4. Backup, migration, and upgrade guidance.
-5. Known limitations.
-6. Exact image version, digest, source commit, release assets, and expandable commit history.
+| Order | Stable: 🎮 Release notes | Beta: 🧪 Beta patch notes |
+|---|---|---|
+| 1 | Stable identity, short introduction and comparison baseline | Testing warning, short introduction and comparison baseline |
+| 2 | Security and breaking-change notices | Security and breaking-change notices, including earlier betas |
+| 3 | Feature highlights, improvements and fixes | Changes in this beta |
+| 4 | Maintenance | What to test, then maintenance |
+| 5 | Before you upgrade | Before you test |
+| 6 | Known issues, then known limitations | Known issues, then known limitations |
+| 7 | Installation details and commit history | Installation details and commit history |
+
+Development notes have a distinct workshop identity and explicit experimental-build warning. They summarize changes since the preceding stable tag and use **Before you test**, without beta-only testing prompts.
+
+Empty editorial sections are omitted. Stable feature highlights use short headings and benefit-focused paragraphs; keep major integrations as separate entries. Other changes, including beta changes and maintenance, use bullets with bold introductory titles. Use one emoji per main heading and plain-English names; avoid extra feature-title emojis in new entries. Security and breaking changes always precede highlights.
+
+Upgrade instructions and cautions are lists. The template supplies separate backup, matching-container-version and rollback bullets. Author `upgrade` text as a concise action for that entry; the generator labels it with the entry title. Identical upgrade text is consolidated, but distinct requirements are never automatically paraphrased or sentence-split. Consolidate repeated reminders when writing new entries, not by rewriting published entries.
+
+For example, a maintenance item renders as `- **Predictable runners:** Pin runner versions for predictable builds.` An upgrade item renders as `- **Storage migration:** Back up the database before migrating.` Retain every meaningful compatibility requirement even when it needs a longer bullet.
 
 Beta notes are incremental against the preceding applicable published ancestor beta/stable release. Main notes include **all** entries since the preceding published stable release, even if they appeared in several betas. Reserved tags and drafts from failed deliveries never remove changes from later release notes. The first release includes all available entries. If a direct push has no editorial entry, notes explicitly say so and include commit history; the pipeline does not invent feature claims.
+
+The planner separately records `safetyNotes` since the preceding published stable release (excluding the release being planned). This full preview-cycle context retains upgrade instructions, security/breaking notices, unresolved known issues and current limitations in later betas without repeating old feature lists. Issue resolutions and limitation replacements apply across that context. These release-scoped cautions are not a permanent issue tracker: restate still-relevant cautions in a new entry for a later release cycle. Older manifests without `safetyNotes` fall back to their own entries.
+
+GitHub notes keep expandable commit history. Embedded notes use ordinary Markdown headings for the same history, without GitHub-only HTML. Both retain exact image versions, source revisions and verified full-hash commit links; published GitHub notes also include the image digest. The in-app reader renders headings, lists, emphasis, links and code, disables raw HTML and remote images, and allows only HTTP(S) links. It remains readable with older plain-text metadata. Available-update upgrade requirements stay visible outside the expandable notes; limitations and issues are shown inside, with supplementary lists when older notes omit them.
+
+Metadata remains format 1: `knownIssues` is additive and optional for readers, defaulting to an empty list. Existing upgrade/limitation arrays remain unchanged. These presentation rules apply only to newly generated releases and images; do not rewrite published releases, tags, append-only entries or image-baked notes.
 
 ## Version rules
 
@@ -110,7 +132,7 @@ Update checks are disabled by default and never install software. Set `ROMCHECKE
 
 The server reads this package's GHCR `development`, `beta`, or `latest` image metadata for the baked channel and CPU architecture. It compares semantic application versions, not build counters alone, refuses cross-channel results/conflicting identities, and reports a schema warning when the candidate schema differs. A channel alias older than the running image does not trigger a downgrade. Switching channels requires explicitly deploying another channel image; runtime environment variables do not change the baked channel.
 
-Each published version also has a small scratch companion image at `<version>-metadata` in the same GHCR package. Its only layer contains `release-info.json`; it is data, never executed. Publication verifies its contents and refuses to replace conflicting metadata on retries before advancing channel aliases. This provides development release notes without creating development GitHub releases. The checker verifies the layer digest, bounds compressed/decompressed data to 2 MiB, and validates version/channel/source identity. Notes failures do not hide confirmed image updates: they produce a separate warning. Release notes are displayed as escaped text, never trusted HTML.
+Each published version also has a small scratch companion image at `<version>-metadata` in the same GHCR package. Its only layer contains `release-info.json`; it is data, never executed. Publication verifies its contents and refuses to replace conflicting metadata on retries before advancing channel aliases. This provides development release notes without creating development GitHub releases. The checker verifies the layer digest, bounds compressed/decompressed data to 2 MiB, and validates version/channel/source identity. Notes failures do not hide confirmed image updates: they produce a separate warning. Release notes are displayed using restricted Markdown; raw HTML is disabled and never trusted.
 
 Public package checks need no credentials. For this private package, configure `ROMCHECKER_UPDATE_USERNAME` and a server-only `ROMCHECKER_UPDATE_TOKEN` with package-read access (and required organization authorization, if applicable). These credentials are never sent to the browser or exported in diagnostics. Checks contact `ghcr.io` and its signed `pkg-containers.githubusercontent.com` blob endpoint; no ROM data is sent. Network/authentication/invalid-metadata failures are explicit errors, not an "up to date" result. Deployments without outbound access can leave checks disabled.
 
