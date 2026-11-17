@@ -4,8 +4,12 @@ on:
     branches: [development, beta, main]
     types: [opened, synchronize, reopened, edited, ready_for_review]
   workflow_call:
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.event.action == 'edited' && 'policy' || 'checks' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 permissions:
   contents: read
+  checks: read
 env:
   DOCKER_BUILD_RECORD_UPLOAD: 'false'
 jobs:
@@ -21,8 +25,10 @@ jobs:
         with:
           node-version: '24'
       - name: Release automation regressions
+        if: github.event.action != 'edited' || github.run_attempt > 1
         run: node --test .github/release-tools/release.test.mjs
       - name: Validate release-note entries
+        if: github.event.action != 'edited' || github.run_attempt > 1
         run: node .github/release-tools/release.mjs validate
       - name: Check PR promotion and title
         if: github.event_name == 'pull_request'
@@ -34,28 +40,22 @@ jobs:
           PR_BASE_REPO: ${{ github.repository }}
         run: node .github/release-tools/policy.mjs
       - name: Require append-only release notes on feature and hotfix PRs
-        if: github.event_name == 'pull_request' && (github.base_ref == 'development' || startsWith(github.head_ref, 'hotfix/'))
+        if: github.event_name == 'pull_request' && (github.event.action != 'edited' || github.run_attempt > 1)
+          && (github.base_ref == 'development' || startsWith(github.head_ref, 'hotfix/'))
         env:
           TARGET: ${{ github.base_ref }}
         run: node .github/release-tools/release.mjs validate "origin/$TARGET"
       - name: Check workflow definitions
+        if: github.event.action != 'edited' || github.run_attempt > 1
         run: |
           docker run --rm -v "$PWD:/repo" -w /repo rhysd/actionlint:1.7.7 -color
   dependencies:
     name: Dependency audit
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.run_attempt > 1
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-dotnet@v6
-        with:
-          dotnet-version: '10.0.x'
-      - name: Audit direct and transitive NuGet packages
-        run: |
-          dotnet restore web/server/RomChecker.Web.csproj
-          dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
-          cat "$RUNNER_TEMP/nuget-audit.json"
-          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
       - uses: aquasecurity/trivy-action@v0.36.0
         env:
           TRIVY_INCLUDE_DEV_DEPS: 'true'
@@ -68,6 +68,7 @@ jobs:
           exit-code: '1'
   application:
     name: Application and engine
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.run_attempt > 1
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -84,6 +85,11 @@ jobs:
         run: ./RomSorter.Tests.ps1
       - name: Build API
         run: dotnet build web/server/RomChecker.Web.csproj
+      - name: Audit restored NuGet packages
+        run: |
+          dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
+          cat "$RUNNER_TEMP/nuget-audit.json"
+          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)'
       - name: Frontend build and tests
         working-directory: web/client
         run: |
@@ -121,6 +127,7 @@ jobs:
           name: browser-failure
           path: web/client/test-results/
   windows-engine:
+    if: github.event_name != 'pull_request' || github.event.action != 'edited' || github.run_attempt > 1
     runs-on: windows-latest
     timeout-minutes: 15
     steps:
@@ -130,6 +137,7 @@ jobs:
         run: .\RomSorter.Tests.ps1
   container:
     name: Container smoke test
+    if: github.event_name == 'pull_request' && (github.event.action != 'edited' || github.run_attempt > 1)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
@@ -237,5 +245,16 @@ jobs:
       - name: Require every quality gate
         env:
           RESULTS: ${{ toJSON(needs) }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_ACTION: ${{ github.event.action == 'edited' && github.run_attempt == 1 && 'edited' || 'full' }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          echo "$RESULTS" | jq -e 'all(.[]; .result == "success")'
+          set -euo pipefail
+          prior_checks=not-needed
+          if [[ "$EVENT_NAME" == pull_request && "$EVENT_ACTION" == edited ]]; then
+            prior_checks="$(gh api --paginate --slurp \
+              "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?check_name=Required%20checks&filter=all&per_page=100" \
+              --jq 'any(.[].check_runs[]; .name == "Required checks" and .app.slug == "github-actions" and .status == "completed" and .conclusion == "success")')"
+          fi
+          node .github/release-tools/workflow-results.mjs ci "$EVENT_NAME" "$EVENT_ACTION" "$RESULTS" "$prior_checks" \
+            | tee -a "$GITHUB_STEP_SUMMARY"

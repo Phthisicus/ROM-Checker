@@ -1,0 +1,5 @@
+{
+  "type": "maintenance",
+  "title": "Skip stale CI runs and verify the image that actually ships",
+  "description": "PR title and description edits now run only policy checks, while newer PR runs supersede stale ones. Post-merge CI avoids a generic container build because Delivery verifies the versioned image. Development and release delivery each build once, then scan and smoke-test the exact digest before advancing aliases or completing release publication."
+}

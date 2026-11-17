@@ -7,11 +7,30 @@ import { join, resolve } from 'node:path'
 import { tmpdir } from 'node:os'
 import { calculateVersion, compareVersions, parseVersion, releaseInfo, renderNotes, validateNote } from './release.mjs'
 import { buildInfo } from './build-info.mjs'
+import { evaluateCiResults, evaluateDeliveryResults } from './workflow-results.mjs'
 
 const sha = 'a'.repeat(40)
 const priorSha = 'b'.repeat(40)
 const feature = { type: 'feature', title: 'Console-scoped verification', description: 'Check one console without changing the rest of your library.' }
 const input = { branch: 'main', tags: [], commits: [], notes: [], fallback: '0.2.0', sha }
+test('workflow result gates distinguish policy-only PR edits, full checks and delivery skips', () => {
+  const success = { result: 'success' }, skipped = { result: 'skipped' }, failure = { result: 'failure' }
+  const base = { 'release-policy': success, dependencies: success, application: success,
+    'windows-engine': success, container: success }
+  assert.equal(evaluateCiResults(base, 'pull_request', 'synchronize').passed, true)
+  assert.equal(evaluateCiResults({ ...base, application: failure }, 'pull_request', 'synchronize').passed, false)
+  assert.equal(evaluateCiResults({ ...base, dependencies: skipped, application: skipped,
+    'windows-engine': skipped, container: skipped }, 'pull_request', 'edited', 'true').passed, true)
+  assert.equal(evaluateCiResults({ ...base, dependencies: skipped, application: skipped,
+    'windows-engine': skipped, container: skipped }, 'pull_request', 'edited', 'false').passed, false)
+  assert.equal(evaluateCiResults({ ...base, 'release-policy': skipped, dependencies: skipped,
+    application: skipped, 'windows-engine': skipped, container: skipped }, 'pull_request', 'edited').passed, false)
+  assert.equal(evaluateCiResults({ ...base, container: skipped }, 'push', '').passed, true)
+  assert.equal(evaluateCiResults({ ...base, container: failure }, 'push', '').passed, false)
+  assert.equal(evaluateDeliveryResults({ checks: success, 'development-image': success, publish: skipped }, 'development').passed, true)
+  assert.equal(evaluateDeliveryResults({ checks: success, 'development-image': success, publish: success }, 'main').passed, false)
+  assert.equal(evaluateDeliveryResults({ checks: failure, 'development-image': skipped, publish: success }, 'beta').passed, false)
+})
 test('published build identities reject placeholders and channel/version inconsistencies', () => {
   const env = { VERSION: '1.3.0-development.142', CHANNEL: 'development', REVISION: sha,
     BUILD_NUMBER: '142', BUILD_ATTEMPT: '1', BUILT_UTC: '2026-10-27T20:00:00Z',
