@@ -70,6 +70,8 @@ it('retains a stale result and exposes upgrade requirements when the next check 
   render(<SettingsView fail={vi.fn()} saved={vi.fn()} />)
   expect(await screen.findByRole('status')).toHaveTextContent('stale')
   expect(screen.getByText('Restore a matching backup to roll back.')).toBeInTheDocument()
+  expect(screen.getByText('Restore a matching backup to roll back.').tagName).toBe('LI')
   expect(screen.getByText('Requires shared storage.')).toBeInTheDocument()
+  expect(screen.getByText('Requires shared storage.').tagName).toBe('LI')
   expect(screen.getByText('New release changes.')).toBeInTheDocument()
 })

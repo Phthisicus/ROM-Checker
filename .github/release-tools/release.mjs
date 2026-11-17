@@ -50,7 +50,7 @@ export function validateNote(note, path = 'release note') {
       throw new Error(`${path}: ${key} needs 8-${key === 'title' ? 100 : 4000} characters.`)
   }
   if (/[\r\n]/.test(note.title)) throw new Error(`${path}: title must be a single line.`)
-  for (const key of ['upgrade', 'limitations']) {
+  for (const key of ['upgrade', 'limitations', 'knownIssues']) {
     if (note[key] !== undefined && (typeof note[key] !== 'string' || note[key].length > 4000))
       throw new Error(`${path}: ${key} must be a string of at most 4000 characters.`)
   }
@@ -60,8 +60,18 @@ export function validateNote(note, path = 'release note') {
     || new Set(note.supersedesLimitations.map(value => value.trim())).size !== note.supersedesLimitations.length
     || note.supersedesLimitations.some(value => value.trim() === note.limitations.trim())))
     throw new Error(`${path}: superseded limitations require distinct nonempty texts and a replacement limitation.`)
+  for (const key of ['testing', 'resolvesKnownIssues']) {
+    const minimum = key === 'testing' ? 8 : 1
+    if (note[key] !== undefined && (!Array.isArray(note[key]) || !note[key].length
+      || note[key].some(value => typeof value !== 'string' || value.trim().length < minimum || value.length > 4000)
+      || new Set(note[key].map(value => value.trim())).size !== note[key].length))
+      throw new Error(`${path}: ${key} requires distinct nonempty texts of ${minimum}-4000 characters.`)
+  }
+  if (note.resolvesKnownIssues?.some(text => text.trim() === note.knownIssues?.trim()))
+    throw new Error(`${path}: a resolved issue cannot also be reported as current.`)
   if (note.type === 'breaking' && !note.upgrade?.trim()) throw new Error(`${path}: breaking changes require upgrade instructions.`)
-  const unexpected = Object.keys(note).filter(key => !['type', 'title', 'description', 'upgrade', 'limitations', 'supersedesLimitations'].includes(key))
+  const unexpected = Object.keys(note).filter(key => !['type', 'title', 'description', 'upgrade', 'limitations', 'supersedesLimitations',
+    'testing', 'knownIssues', 'resolvesKnownIssues'].includes(key))
   if (unexpected.length) throw new Error(`${path}: unknown fields: ${unexpected.join(', ')}.`)
   return note
 }
@@ -98,46 +108,81 @@ function currentLimitations(notes) {
   const superseded = new Set(notes.flatMap(note => note.supersedesLimitations ?? []).map(text => text.trim()))
   return [...new Set(notes.map(note => note.limitations?.trim()).filter(Boolean))].filter(text => !superseded.has(text))
 }
-export function renderNotes(plan, digest = null) {
-  const sections = [
-    ['✨ New unlocks — Features', ['feature']],
-    ['⚠️ Breaking changes', ['breaking']],
-    ['⚡ Level-ups — Improvements & performance', ['improvement', 'performance']],
-    ['🛠️ Bug fixes', ['fix']],
-    ['🛡️ Security', ['security']],
-    ['🔧 Behind the scenes — Maintenance', ['maintenance']]
-  ]
-  const lines = [`# 🎮 ROM Checker ${plan.version} — Patch notes`, '',
-    plan.branch === 'development' ? '**Development build — experimental and not intended for production. Back up your data before upgrading.**'
-      : plan.prerelease ? '**Beta prerelease — intended for testing, not production. Back up your data before upgrading.**'
+function currentKnownIssues(notes) {
+  const resolved = new Set(notes.flatMap(note => note.resolvesKnownIssues ?? []).map(text => text.trim()))
+  return [...new Set(notes.map(note => note.knownIssues?.trim()).filter(Boolean))].filter(text => !resolved.has(text))
+}
+const uniqueTexts = (notes, key) => [...new Set(notes.map(note => note[key]?.trim()).filter(Boolean))]
+function bullet(text) { return `- ${text.replace(/\n/g, '\n  ')}` }
+export function renderNotes(plan, digest = null, { embedded = false } = {}) {
+  const development = plan.branch === 'development'
+  const beta = !development && plan.prerelease
+  const safetyNotes = plan.safetyNotes ?? plan.notes
+  const lines = [`# ${development ? '🚧' : beta ? '🧪' : '🎮'} ROM Checker ${plan.version} — ${development ? 'Development notes' : beta ? 'Beta patch notes' : 'Release notes'}`, '',
+    development ? '**Development build — experimental and not intended for production. Back up your data before upgrading.**'
+      : beta ? '**Beta prerelease — intended for testing, not production. Back up your data before upgrading.**'
       : '**Stable release — changes since the previous stable release.**', '',
-    plan.branch === 'development' ? 'Welcome to the workshop! Here is what is taking shape for your next ROM-checking session.'
-      : plan.prerelease ? 'Ready for a test run? Explore the changes in this preview and help put the next release through its paces.'
-      : 'Your next session starts here. Check out the latest additions to your ROM-checking loadout.', '']
-  for (const [heading, types] of sections) {
-    const notes = plan.notes.filter(note => types.includes(note.type))
-    if (!notes.length) continue
+    development ? 'Welcome to the workshop! Here is what is taking shape for your next ROM-checking session.'
+      : beta ? 'Ready for a test run? Explore this preview and help put the next release through its paces.'
+      : 'Your next session starts here. Check out the latest additions to your ROM-checking loadout.', '',
+    plan.baseline ? `**Changes since:** \`${plan.baseline}\`${beta ? ' (previous applicable beta or stable release)' : development ? ' (previous stable release)' : ' (previous stable release; includes changes previewed in betas)'}.`
+      : '**Coverage:** All available changes; no previous applicable release.', '']
+  if (beta) lines.push('Upgrade requirements and current cautions cover the full preview cycle, including earlier betas.', '')
+  const section = (heading, notes, expanded = false) => {
+    if (!notes.length) return
     lines.push(`## ${heading}`, '')
-    for (const note of notes) lines.push(`### ${escapeHeading(note.title)}`, '', note.description.trim(), '')
+    for (const note of notes) {
+      if (expanded) lines.push(`### ${escapeHeading(note.title)}`, '', note.description.trim(), '')
+      else lines.push(bullet(`**${escapeHeading(note.title)}:** ${note.description.trim()}`), '')
+    }
   }
+  section('🛡️ Security', safetyNotes.filter(note => note.type === 'security'))
+  section('⚠️ Breaking changes', safetyNotes.filter(note => note.type === 'breaking'))
+  if (beta) {
+    section('✨ Changes in this beta', plan.notes.filter(note => ['feature', 'improvement', 'performance', 'fix'].includes(note.type)))
+  } else {
+    section('✨ New unlocks — Features', plan.notes.filter(note => note.type === 'feature'), true)
+    section('⚡ Level-ups — Improvements & performance', plan.notes.filter(note => ['improvement', 'performance'].includes(note.type)))
+    section('🛠️ Bug fixes', plan.notes.filter(note => note.type === 'fix'))
+  }
+  const testing = [...new Set(plan.notes.flatMap(note => note.testing ?? []).map(text => text.trim()))]
+  if (beta && testing.length) {
+    lines.push('## 🎯 What to test', '')
+    for (const text of testing) lines.push(bullet(text), '')
+  }
+  section('🔧 Behind the scenes — Maintenance', plan.notes.filter(note => note.type === 'maintenance'))
   if (!plan.notes.length) lines.push('## 📋 Changes', '', 'Check the session log below for this release\'s commit history. No editorial feature summary was supplied.', '')
-  const upgrades = [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))]
-  const limitations = currentLimitations(plan.notes)
-  lines.push('## ⬆️ Before you upgrade — Upgrade notes', '', 'Save your progress before the next session.', '',
-    'Back up application data, ROM storage, and configuration. Use the same image version for the application, storage service, and signature updater. Rollback may require restoring the matching data backup.', '')
-  for (const text of upgrades) lines.push(text, '')
-  if (limitations.length) {
-    lines.push('## ⚠️ Known limitations', '')
-    for (const text of limitations) lines.push(text, '')
+  lines.push(`## ⬆️ ${beta || development ? 'Before you test' : 'Before you upgrade'}`, '',
+    '- **Backups:** Back up application data, ROM storage, and configuration.',
+    '- **Container versions:** Use the same image version for the application, storage service, and signature updater.',
+    '- **Rollback:** Rollback may require restoring the matching data backup.', '')
+  for (const note of safetyNotes) {
+    if (!note.upgrade?.trim()) continue
+    // Keep distinct instructions intact; only identical guidance is consolidated.
+    if (safetyNotes.find(other => other.upgrade?.trim() === note.upgrade.trim()) !== note) continue
+    lines.push(bullet(`**${escapeHeading(note.title)}:** ${note.upgrade.trim()}`), '')
   }
-  lines.push('## 📦 Container image', '', '```text', `${plan.image}:${plan.version}`, ...(digest ? [`${plan.image}@${digest}`] : []), '```', '',
-    `Source commit: \`${plan.sha}\``, '', 'The registry image includes an SBOM and build provenance. The final image digest is recorded separately after publication.', '',
-    '<details>', '<summary>📜 Session log — Commit history</summary>', '')
+  for (const [heading, texts] of [
+    ['🐛 Known issues', currentKnownIssues(safetyNotes)],
+    ['⚠️ Known limitations', currentLimitations(safetyNotes)]
+  ]) {
+    if (!texts.length) continue
+    lines.push(`## ${heading}`, '')
+    for (const text of texts) lines.push(bullet(text), '')
+  }
+  lines.push('## 📦 Installation details', '', 'Exact container image:', '', '```text',
+    `${plan.image}:${plan.version}`, ...(digest ? [`${plan.image}@${digest}`] : []), '```', '',
+    `Source commit: \`${plan.sha}\``, '',
+    `The registry image includes an SBOM and build provenance. ${digest ? 'The published image digest is shown above.' : 'The final image digest is recorded with the published release.'}`, '')
+  if (!embedded) lines.push('<details>', '<summary>Expand commit history</summary>', '')
+  lines.push('### 📜 Session log — Commit history', '')
+  if (!plan.commits.length) lines.push('No commits in this comparison.', '')
   for (const commit of plan.commits.slice(0, 200))
     lines.push(`- ${escapeHeading(commit.subject)} ([${commit.hash.slice(0, 7)}](https://github.com/${plan.repository}/commit/${commit.hash}))`)
-  lines.push('', '</details>', '')
-  if (plan.baseline) lines.push(`**Full changelog:** https://github.com/${plan.repository}/compare/${plan.baseline}...${plan.tag ?? plan.sha}`, '')
-  else lines.push(`**Source:** https://github.com/${plan.repository}/tree/${plan.tag ?? plan.sha}`, '')
+  lines.push('')
+  if (!embedded) lines.push('</details>', '')
+  if (plan.baseline) lines.push(`**Full changelog:** [Compare changes](https://github.com/${plan.repository}/compare/${plan.baseline}...${plan.tag ?? plan.sha})`, '')
+  else lines.push(`**Source:** [Browse source](https://github.com/${plan.repository}/tree/${plan.tag ?? plan.sha})`, '')
   return lines.join('\n')
 }
 export function releaseInfo(plan) {
@@ -148,9 +193,10 @@ export function releaseInfo(plan) {
     releaseUrl: plan.branch === 'development'
       ? `https://github.com/${plan.repository}/commit/${plan.sha}`
       : `https://github.com/${plan.repository}/releases/tag/${plan.tag}`,
-    notes: renderNotes(plan),
-    upgradeNotes: [...new Set(plan.notes.map(note => note.upgrade?.trim()).filter(Boolean))],
-    limitations: currentLimitations(plan.notes)
+    notes: renderNotes(plan, null, { embedded: true }),
+    upgradeNotes: uniqueTexts(plan.safetyNotes ?? plan.notes, 'upgrade'),
+    limitations: currentLimitations(plan.safetyNotes ?? plan.notes),
+    knownIssues: currentKnownIssues(plan.safetyNotes ?? plan.notes)
   }
 }
 function writeReleaseInfo(plan) {
@@ -175,9 +221,13 @@ export function run(command, args) {
     const notes = readdirSync(directory).filter(name => name.endsWith('.json')).map(name =>
       validateNote(JSON.parse(readFileSync(join(directory, name), 'utf8')), name))
     const limitations = new Set(notes.map(note => note.limitations?.trim()).filter(Boolean))
+    const knownIssues = new Set(notes.map(note => note.knownIssues?.trim()).filter(Boolean))
     for (const note of notes)
       for (const text of note.supersedesLimitations ?? [])
         if (!limitations.has(text.trim())) throw new Error(`Unknown superseded limitation: ${text}`)
+    for (const note of notes)
+      for (const text of note.resolvesKnownIssues ?? [])
+        if (!knownIssues.has(text.trim())) throw new Error(`Unknown resolved issue: ${text}`)
     if (args[0]) {
       const base = args[0]
       const changed = git('diff', '--name-status', `${base}...HEAD`).split('\n')
@@ -213,8 +263,10 @@ export function run(command, args) {
     const tag = 'v' + version
     const published = publishedFile ? new Set(readFileSync(publishedFile, 'utf8').trim().split(/\r?\n/)) : null
     const baseline = baselineFor(published ? tags.filter(tag => published.has(tag.name)) : tags, sha, branch === 'beta', tag)
+    const safetyBaseline = baselineFor(published ? tags.filter(tag => published.has(tag.name)) : tags, sha, false, tag)
     const plan = { version, tag, branch, prerelease: branch === 'beta', sha, repository,
-      image: `ghcr.io/${repository.toLowerCase()}`, baseline, notes: notesSince(baseline, sha), commits: commitsSince(baseline, sha) }
+      image: `ghcr.io/${repository.toLowerCase()}`, baseline, notes: notesSince(baseline, sha),
+      safetyNotes: notesSince(safetyBaseline, sha), commits: commitsSince(baseline, sha) }
     mkdirSync(directory, { recursive: true })
     writeFileSync(join(directory, 'release-plan.json'), JSON.stringify(plan, null, 2) + '\n')
     writeReleaseInfo(plan)
