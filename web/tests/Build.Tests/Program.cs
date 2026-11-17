@@ -43,6 +43,17 @@ try
     var releasePath = Path.Combine(directory, "release-info.json");
     File.WriteAllText(releasePath, JsonSerializer.Serialize(release, Json.Options));
     Check(ReleaseInfo.Load(releasePath, identity).Notes == release.Notes, "Installed notes load offline");
+    File.WriteAllText(releasePath, JsonSerializer.Serialize(new
+    {
+        release.MetadataFormatVersion, release.Version, release.Channel, release.Commit,
+        release.ReleaseUrl, release.Notes, release.UpgradeNotes, release.Limitations
+    }, Json.Options));
+    Check(ReleaseInfo.Load(releasePath, identity).KnownIssues.Length == 0, "Older metadata does not require known issues");
+    var withIssues = release with { KnownIssues = ["Some artwork loads slowly."] };
+    File.WriteAllText(releasePath, JsonSerializer.Serialize(withIssues, Json.Options));
+    Check(ReleaseInfo.Load(releasePath, identity).KnownIssues.SequenceEqual(withIssues.KnownIssues), "Known issues survive offline metadata loading");
+    Reject(() => (release with { KnownIssues = [new string('x', 4001)] }).Validate(identity.Version, identity.Channel, identity.Commit),
+        "Reject oversized issue metadata");
     Reject(() => release.Validate("1.0.0", identity.Channel, identity.Commit), "Reject notes for another image");
     Reject(() => (release with { MetadataFormatVersion = 2 }).Validate(identity.Version, identity.Channel, identity.Commit),
         "Metadata format is independent of database schema");

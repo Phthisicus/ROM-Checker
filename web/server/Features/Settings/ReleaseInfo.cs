@@ -6,6 +6,8 @@ namespace RomChecker.Web.Features.Settings;
 public sealed record ReleaseInfo(int MetadataFormatVersion, string Version, string Channel, string Commit,
     string? ReleaseUrl, string Notes, string[] UpgradeNotes, string[] Limitations)
 {
+    public string[] KnownIssues { get; init; } = [];
+
     public static ReleaseInfo Load(string path, BuildIdentity build)
     {
         if (!File.Exists(path) && build.Channel == "local")
@@ -20,8 +22,8 @@ public sealed record ReleaseInfo(int MetadataFormatVersion, string Version, stri
     {
         if (MetadataFormatVersion != 1 || Version != version || Channel != channel || Commit != commit
             || string.IsNullOrWhiteSpace(Notes) || Notes.Length > 512_000
-            || UpgradeNotes is null || Limitations is null
-            || UpgradeNotes.Concat(Limitations).Any(text => text is null || text.Length > 4000)
+            || UpgradeNotes is null || Limitations is null || KnownIssues is null
+            || UpgradeNotes.Concat(Limitations).Concat(KnownIssues).Any(text => text is null || text.Length > 4000)
             || (ReleaseUrl is not null && !Regex.IsMatch(ReleaseUrl,
                 @"^https://github\.com/Phthisicus/ROM-Checker/(releases/tag/v\d+\.\d+\.\d+(?:-beta\.\d+)?|commit/[a-f0-9]{40})$")))
             throw new InvalidOperationException("Release information does not match the image identity or supported format.");
