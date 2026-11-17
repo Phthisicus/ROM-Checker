@@ -1,0 +1,5 @@
+{
+  "type": "maintenance",
+  "title": "Refresh the frontend build and browser testing toolchain",
+  "description": "Update frontend icons, build tools and browser-test dependencies. Vite client declarations keep stylesheet imports type-checked with TypeScript 7. These tooling updates do not change verification policy or automatically upgrade running installations."
+}
