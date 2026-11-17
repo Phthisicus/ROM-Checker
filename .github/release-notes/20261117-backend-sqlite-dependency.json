@@ -1,0 +1,6 @@
+{
+  "type": "maintenance",
+  "title": "Update the backend SQLite data provider",
+  "description": "Update Microsoft.Data.Sqlite to 11.0.0. The application retains its existing database schema compatibility checks and verification policy.",
+  "upgrade": "Back up application data before upgrading. A dependency version alone does not establish database migration or rollback compatibility; retain the matching application image and backup."
+}
