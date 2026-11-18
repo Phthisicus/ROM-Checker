@@ -13,6 +13,51 @@ const sha = 'a'.repeat(40)
 const priorSha = 'b'.repeat(40)
 const feature = { type: 'feature', title: 'Console-scoped verification', description: 'Check one console without changing the rest of your library.' }
 const input = { branch: 'main', tags: [], commits: [], notes: [], fallback: '0.2.0', sha }
+test('NuGet audit reads its report and rejects vulnerable or incomplete results', () => {
+  const workflow = readFileSync(resolve('.github/workflows/ci.yml'), 'utf8')
+  const script = workflow.split('      - name: Audit restored NuGet packages\n')[1]
+    .split('      - name:')[0].split('        run: |\n')[1]
+    .split('\n').map(line => line.replace(/^          /, '')).join('\n')
+  const directory = mkdtempSync(join(tmpdir(), 'romchecker-audit-'))
+  try {
+    const dotnet = join(directory, 'dotnet')
+    writeFileSync(dotnet, '#!/usr/bin/env bash\ncat "$AUDIT_FIXTURE"\n')
+    chmodSync(dotnet, 0o755)
+    const fixture = join(directory, 'fixture.json')
+    const clean = { version: 1, projects: [{ path: 'web/server/RomChecker.Web.csproj' }] }
+    const vulnerable = (kind, severity) => ({ ...clean, projects: [{
+      ...clean.projects[0], frameworks: [{ [kind]: [{ vulnerabilities: [{ severity }] }] }],
+    }] })
+    for (const [report, passed] of [
+      [clean, true],
+      [vulnerable('topLevelPackages', 'High'), false],
+      [vulnerable('transitivePackages', 'Critical'), false],
+      [vulnerable('transitivePackages', 'Moderate'), true],
+      [{ ...clean, problems: [{ message: 'Audit source unavailable' }] }, false],
+      [{ projects: [] }, false],
+    ]) {
+      writeFileSync(fixture, JSON.stringify(report))
+      const result = spawnSync('bash', ['-e', '-o', 'pipefail', '-c', script], {
+        encoding: 'utf8', input: '',
+        env: { ...process.env, RUNNER_TEMP: directory, AUDIT_FIXTURE: fixture,
+          PATH: `${directory}:${process.env.PATH}` },
+      })
+      assert.equal(result.status === 0, passed, result.stderr || JSON.stringify(report))
+    }
+  } finally { rmSync(directory, { recursive: true, force: true }) }
+})
+test('workflow result jobs check out their gate script and configure Node before running it', () => {
+  for (const [file, job] of [['ci.yml', 'required'], ['delivery.yml', 'delivery-status']]) {
+    const workflow = readFileSync(resolve(`.github/workflows/${file}`), 'utf8')
+    const steps = workflow.split(`  ${job}:\n`)[1].split('    steps:\n')[1]
+    const gate = steps.indexOf('node .github/release-tools/workflow-results.mjs')
+    assert.ok(gate > 0, `${job} must run the workflow gate`)
+    for (const action of ['actions/checkout@', 'actions/setup-node@']) {
+      const setup = steps.indexOf(action)
+      assert.ok(setup >= 0 && setup < gate, `${job} must run ${action} before its gate`)
+    }
+  }
+})
 test('workflow result gates distinguish policy-only PR edits, full checks and delivery skips', () => {
   const success = { result: 'success' }, skipped = { result: 'skipped' }, failure = { result: 'failure' }
   const base = { 'release-policy': success, dependencies: success, application: success,

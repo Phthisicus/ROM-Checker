@@ -89,7 +89,7 @@ jobs:
         run: |
           dotnet list web/server/RomChecker.Web.csproj package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/nuget-audit.json"
           cat "$RUNNER_TEMP/nuget-audit.json"
-          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)'
+          jq -e '(.projects | length > 0) and ((.problems // []) | length == 0) and ([.projects[].frameworks[]? | (.topLevelPackages[]?, .transitivePackages[]?) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length == 0)' "$RUNNER_TEMP/nuget-audit.json"
       - name: Frontend build and tests
         working-directory: web/client
         run: |
@@ -242,6 +242,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
       - name: Require every quality gate
         env:
           RESULTS: ${{ toJSON(needs) }}

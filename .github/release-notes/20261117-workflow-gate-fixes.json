@@ -1,0 +1,5 @@
+{
+  "type": "fix",
+  "title": "Restore dependency audit and workflow gate execution",
+  "description": "The NuGet audit now reads its generated report instead of failing on empty input. CI and delivery status jobs check out their gate scripts and set up Node.js before evaluating results."
+}
