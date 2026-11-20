@@ -1,9 +1,11 @@
 const { PR_BASE: base, PR_HEAD: head, PR_TITLE: title } = process.env
+const copilotMaintenance = head?.startsWith('copilot/')
 if (!['development', 'beta', 'main'].includes(base)) throw new Error('Unsupported pull request target.')
 if (['beta', 'main'].includes(base) && process.env.PR_HEAD_REPO !== process.env.PR_BASE_REPO)
   throw new Error('Release promotions must originate in this repository.')
 if (base === 'beta' && head !== 'development') throw new Error('Promote development into beta; do feature work in development.')
-if (base === 'main' && head !== 'beta' && !head?.startsWith('hotfix/')) throw new Error('Promote beta into main, or use an explicit hotfix/* branch.')
+if (base === 'main' && head !== 'beta' && !head?.startsWith('hotfix/') && !copilotMaintenance)
+  throw new Error('Promote beta into main, or use an explicit hotfix/* or copilot/* branch.')
 if ((base === 'development' || head?.startsWith('hotfix/'))
   && !/^(feat|fix|perf|docs|refactor|test|build|ci|chore|revert)(\([^)]+\))?!?: .{8,}$/.test(title ?? ''))
   throw new Error('Use a Conventional Commit PR title, for example: feat(library): add console-scoped verification')

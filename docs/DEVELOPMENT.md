@@ -10,7 +10,7 @@
 
 Create feature branches from development. Submit PRs to development using Conventional Commit titles such as `feat(library): add console-scoped verification` or `fix(storage): preserve interrupted uploads`. Squash feature PRs so the reviewed title becomes the commit message.
 
-Promote development to beta, then beta to main, using **merge commits, not squash/rebase**. This preserves ancestry for future promotions, cumulative stable notes, and reliable comparison links. PR checks reject other promotion sources. Emergency fixes can use `hotfix/*` into main with a Conventional Commit title and release note. Immediately merge the fix back into development and beta; do not cherry-pick unrelated development features into main.
+Promote development to beta, then beta to main, using **merge commits, not squash/rebase**. This preserves ancestry for future promotions, cumulative stable notes, and reliable comparison links. PR checks reject other promotion sources. Emergency fixes can use `hotfix/*` into main with a Conventional Commit title and release note. Same-repository `copilot/*` maintenance PRs may also target main; treat these as stable changes and review their scope carefully. Immediately merge emergency fixes back into development and beta; do not cherry-pick unrelated development features into main.
 
 The pipeline intentionally does not switch your repository's default branch or change merge settings. Keep merge commits enabled for promotions. Optional squash merging is useful for feature PRs; GitHub's repository-wide default cannot enforce the correct method separately for each branch.
 

@@ -354,14 +354,14 @@ Semantic versions come from immutable release tags, Conventional Commits, and re
 
 Containers permanently embed version, build number/attempt, channel, commit, UTC build time, workflow URL, and schema version. Settings exposes those details and a credential-free diagnostics download. Database schema checks reject unsupported newer data before workers start; always back up before upgrading because older containers may lack this safeguard. Optional manual update notifications compare only the current channel and never deploy changes. See the [build identity and compatibility guide](DEVELOPMENT.md#build-identity-and-compatibility).
 
-Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
+Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. Same-repository `copilot/*` maintenance PRs may also target main and should be reviewed as stable changes. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
 
 Repository-owner setup is still required:
 
 1. Install these changes on `development`, then promote them to `beta` and `main`. Enable Actions and permit the workflow's repository/package write permissions.
 2. Ensure the GHCR package is linked to this repository and grants its Actions workflows write access.
 3. Require **Required checks**, PRs, resolved conversations, and no force pushes/deletions on all three branches. A safe preview/apply script is provided; private repositories may require GitHub Pro.
-4. Merge emergency `hotfix/*` changes back into development and beta. Feature changes never go directly into release branches.
+4. Merge emergency `hotfix/*` changes back into development and beta. Feature changes go through development and beta before release; same-repository `copilot/*` maintenance PRs are the documented exception for direct changes to main.
 
 See **[Development and release guide](DEVELOPMENT.md)** for release-note examples, version rules, protection setup, failure recovery, and deployment/rollback instructions. Adding files does not modify remote settings or publish anything. CI builds Linux amd64 images initially. Delivery is automated; updating a running server remains deliberate, with backups and a defined deployment target.
 
