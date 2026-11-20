@@ -1,5 +1,5 @@
 import { CheckCircle2, Link2, LoaderCircle, RefreshCw, Shield, Trash2 } from 'lucide-react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useLayoutEffect, useState } from 'react'
 import { api, date } from '../../api'
 import { Badge, Modal } from '../../components/Presentation'
 import type { RommLink } from '../library/RommMetadata'
@@ -88,7 +88,7 @@ export default function RommView({ advanced, fail }: Props) {
   async function browse() { await run(async () => setRemote(await api<Remote>(`/romm/roms?q=${encodeURIComponent(q)}&page=${page}`))) }
   const dirty = !!config && (settingsKey(config) !== savedKey || !!token || !rulesValid)
   const syncValid = !config?.sync?.autoImport || !!config.sync.platformIds.length
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!dirty) return
     const warn = (event: BeforeUnloadEvent) => { event.preventDefault(); event.returnValue = '' }
     window.addEventListener('beforeunload', warn)
