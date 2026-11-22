@@ -55,6 +55,7 @@ docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.
 docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.1:8080/roms/api/diagnostics/build \
   | jq -e --argjson build "$identity" '.build.version == $build.version and .build.buildNumber == $build.buildNumber and .schema.version == $build.schemaVersion'
 docker exec "$name" curl --fail --silent -b /tmp/release-cookies http://127.0.0.1:8080/roms/api/system \
-  | jq -e --argjson release "$release" '.release == $release and .system.scope == "Container" and (.system.runtime | length > 0)'
+  | jq -e --argjson release "$release" '(.release | .knownIssues //= []) == ($release | .knownIssues //= [])
+    and .system.scope == "Container" and (.system.runtime | length > 0)'
 docker exec "$name" curl --fail --silent -b /tmp/release-cookies -X POST -H 'X-RomChecker: 1' http://127.0.0.1:8080/roms/api/updates/check \
   | jq -e '.status == "disabled"'
