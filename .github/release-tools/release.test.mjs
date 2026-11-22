@@ -25,6 +25,13 @@ test('published build identities reject placeholders and channel/version inconsi
   assert.equal(buildInfo({ ...env, VERSION: '1.3.0-beta.2', CHANNEL: 'beta' }).channel, 'beta')
   assert.equal(buildInfo({ ...env, VERSION: '1.3.0', CHANNEL: 'stable' }).version, '1.3.0')
 })
+test('system smoke comparison defaults omitted known issues to an empty list', () => {
+  const filter = '(.release | .knownIssues //= []) == ($release | .knownIssues //= [])'
+  const compare = (apiRelease, fileRelease) => spawnSync('jq', ['-e', '--argjson', 'release', JSON.stringify(fileRelease), filter],
+    { input: JSON.stringify({ release: apiRelease }), encoding: 'utf8' })
+  assert.equal(compare({ version: '1.0.0', knownIssues: [] }, { version: '1.0.0' }).status, 0)
+  assert.notEqual(compare({ version: '1.0.0', knownIssues: ['Known issue.'] }, { version: '1.0.0' }).status, 0)
+})
 test('only release branches can allocate versions', () => {
   for (const branch of ['development', 'feature/test', '']) assert.throws(() => calculateVersion({ ...input, branch }), /Only beta/)
 })
