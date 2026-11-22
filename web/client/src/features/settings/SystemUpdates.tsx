@@ -43,12 +43,13 @@ export default function SystemUpdates({ info, fail, onUpdate, updateStatus }: {
     <h3>Installed version</h3>
     <dl className="server-info">
       <div><dt>Application version</dt><dd>{info?.version ?? 'Loading...'}</dd></div>
-      <div><dt>Channel</dt><dd>{info?.channel ?? 'Local'}</dd></div>
+      <div><dt>Update channel</dt><dd>{info?.channel ?? 'Local'}</dd></div>
       <div><dt>Build / attempt</dt><dd>{info?.buildNumber ?? 'Local'} / {info?.buildAttempt ?? '-'}</dd></div>
     </dl>
     <details><summary>Detailed version information</summary><dl className="server-info">
       <div><dt>Built (UTC)</dt><dd>{info?.builtUtc ?? 'Local source build'}</dd></div>
       <div><dt>Source revision</dt><dd className="mono">{info?.commit}</dd></div>
+      <div><dt>Immutable build channel</dt><dd>{info?.buildChannel ?? 'Local'}</dd></div>
       <div><dt>Metadata format</dt><dd>{info?.metadataFormatVersion ?? 'Unavailable'}</dd></div>
       <div><dt>Database schema</dt><dd>{info?.schema ? `${info.schema.version} (supported ${info.schema.minimumSupported}-${info.schema.maximumSupported})` : 'Unavailable'}</dd></div>
     </dl>
@@ -58,13 +59,17 @@ export default function SystemUpdates({ info, fail, onUpdate, updateStatus }: {
     <h3>Updates</h3>
     <p className="small">Checks follow this image's channel only. Nothing is installed automatically. Switch channels by explicitly deploying a different channel image.</p>
     <p className="small muted">{details?.updates.enabled
-      ? details.updates.scheduled ? 'Automatic checks run about every six hours. Manual checks are limited to once per minute.' : 'Manual checks enabled. Scheduled checks are disabled.'
-      : 'Update checks are opt-in. Set ROMCHECKER_CHECK_UPDATES=true on the server. Add ROMCHECKER_SCHEDULED_UPDATES=true for scheduled checks.'}</p>
+      ? details.updates.scheduled ? `Automatic checks run every ${details.updates.intervalHours ?? 6} hours. Manual checks are limited to once per minute.` : 'Manual checks enabled. Scheduled checks are disabled.'
+      : 'Update checks are opt-in. Set ROMCHECKER_CHECK_UPDATES=true on the server. Add ROMCHECKER_SCHEDULED_UPDATES=true for scheduled checks and configure ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS (1–168, default 6).'}</p>
     <button type="button" disabled={checking || status?.status === 'checking'} onClick={checkUpdates}>{checking || status?.status === 'checking' ? 'Checking...' : 'Check for updates'}</button>
     {status && <div role="status" className={`notice ${status.status === 'error' || result?.schemaCompatible === false ? 'error' : status.status === 'available' ? 'success' : 'subtle'}`}>
-      <span>{status.message}{result?.version && ` Version ${result.version} · Build ${result.buildNumber}`}
+      <span>{status.message}{result?.version && ` Promoted version ${result.version} · Build ${result.buildNumber} (${result.buildVersion})`}
         {status.stale && ' Last successful result shown below is stale.'}</span>
     </div>}
+    {result?.releaseNotesUrl && <p><a href={result.releaseNotesUrl} target="_blank" rel="noreferrer">View channel release notes</a></p>}
+    {result?.imageTag && <p className="small muted">Published image: <code>{result.imageRepository}:{result.imageTag}</code>
+      {result.imageDigest && <> · Digest <code>{result.imageDigest}</code></>}
+      {result.publishedUtc && ` · ${timestamp(result.publishedUtc)}`}</p>}
     <dl className="server-info">
       <div><dt>Last attempt</dt><dd>{timestamp(status?.lastAttemptUtc)}</dd></div>
       <div><dt>Last successful check</dt><dd>{timestamp(status?.lastSuccessUtc)}</dd></div>

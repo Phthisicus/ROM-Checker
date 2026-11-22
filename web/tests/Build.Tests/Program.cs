@@ -1,9 +1,5 @@
 using System.Net;
-using System.Text;
 using System.Text.Json;
-using System.Formats.Tar;
-using System.IO.Compression;
-using System.Security.Cryptography;
 using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
@@ -37,6 +33,12 @@ try
     Reject(() => BuildIdentity.Load(path), "Reject incomplete published identity");
     File.WriteAllText(path, JsonSerializer.Serialize(identity with { Channel = "stable" }, Json.Options));
     Reject(() => BuildIdentity.Load(path), "Reject channel/version mismatch");
+    var internalIdentity = new BuildIdentity("1.3.0-internal.142+aaaaaaa", 142, 1, "internal",
+        new string('a', 40), identity.BuiltUtc, identity.WorkflowUrl, 1);
+    File.WriteAllText(path, JsonSerializer.Serialize(internalIdentity, Json.Options));
+    Check(BuildIdentity.Load(path) == internalIdentity, "Load SemVer internal build identity");
+    File.WriteAllText(path, JsonSerializer.Serialize(internalIdentity with { Version = "1.3.0-internal.142" }, Json.Options));
+    Reject(() => BuildIdentity.Load(path), "Reject internal version without commit metadata");
     Check(BuildIdentity.Load(Path.Combine(directory, "absent.json")).Channel == "local", "Source builds are explicitly local");
     var release = new ReleaseInfo(1, identity.Version, identity.Channel, identity.Commit, null,
         "Installed release notes.", ["Back up your data."], []);
@@ -88,6 +90,34 @@ try
     Check(UpdateChecker.Evaluate(stable, "1.3.1", "stable", new string('b', 40), 1, 1).Status == "available", "Stable version comparison");
     var beta = identity with { Version = "1.3.0-beta.9", Channel = "beta" };
     Check(UpdateChecker.Evaluate(beta, "1.3.0-beta.10", "beta", new string('b', 40), 1, 1).Status == "available", "Numeric beta comparison");
+    var promoted = UpdateChecker.EvaluateManifest(identity, "beta", "1.3.0-beta.1",
+        "1.3.0-internal.143+bbbbbbb", new string('b', 40), 143, "sha256:" + new string('c', 64),
+        "https://github.com/Phthisicus/ROM-Checker/releases/tag/v1.3.0-beta.1",
+        "1.3.0-beta.1", 1, DateTimeOffset.Parse("2026-11-11T12:00:00Z"));
+    Check(promoted.Status == "available" && promoted.Version == "1.3.0-beta.1"
+        && promoted.BuildVersion == "1.3.0-internal.143+bbbbbbb",
+        "Promoted channel identity remains separate from immutable image identity");
+    var samePromotion = UpdateChecker.EvaluateManifest(internalIdentity, "beta", "1.3.0-beta.1",
+        internalIdentity.Version, internalIdentity.Commit, 142, "sha256:" + new string('c', 64),
+        "https://github.com/Phthisicus/ROM-Checker/releases/tag/v1.3.0-beta.1",
+        "1.3.0-beta.1", 1, DateTimeOffset.Parse("2026-11-11T12:00:00Z"));
+    Check(samePromotion.Status == "current" && samePromotion.Version == "1.3.0-beta.1",
+        "An exact promoted digest reports the channel version without rebuilding");
+    Reject(() => UpdateChecker.EvaluateManifest(identity, "beta", "1.4.0-beta.1",
+        "1.3.0-internal.143+bbbbbbb", new string('b', 40), 143, "sha256:" + new string('c', 64),
+        "https://github.com/Phthisicus/ROM-Checker/releases/tag/v1.4.0-beta.1",
+        "1.4.0-beta.1", 1, DateTimeOffset.Parse("2026-11-11T12:00:00Z")),
+        "Reject release versions unrelated to the immutable build");
+    Check(UpdateChecker.EvaluateManifest(identity, "stable", "1.4.0",
+        "1.4.0-internal.1+bbbbbbb", new string('b', 40), 1, "sha256:" + new string('c', 64),
+        "https://github.com/Phthisicus/ROM-Checker/releases/tag/v1.4.0",
+        "1.4.0", 1, DateTimeOffset.Parse("2026-11-11T12:00:00Z")).Status == "available",
+        "A newer stable release is available even when its source build number is lower");
+    Check(UpdateChecker.EvaluateManifest(identity, "stable", "1.2.0",
+        "1.2.0-internal.999+bbbbbbb", new string('b', 40), 999, "sha256:" + new string('c', 64),
+        "https://github.com/Phthisicus/ROM-Checker/releases/tag/v1.2.0",
+        "1.2.0", 1, DateTimeOffset.Parse("2026-11-11T12:00:00Z")).Status == "current",
+        "A higher build counter cannot make an older release target an update");
 
     var registry = new RegistryFixture();
     using var http = new HttpClient(registry);
@@ -97,18 +127,18 @@ try
     Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", "true");
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_USERNAME", "fixture");
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_TOKEN", "fixture-token");
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHANNEL", "internal");
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS", "12");
     var available = await checker.Check(default);
-    Check(available.Status == "available" && available.Release?.Notes == "Upcoming release notes.",
-        "Registry index, platform config and bounded release metadata layer");
+    Check(available.Status == "available" && available.Version == "1.3.0-internal.143+bbbbbbb"
+        && available.ImageDigest == "sha256:" + new string('c', 64)
+        && available.ImageRepository == "ghcr.io/phthisicus/rom-checker",
+        "Registry update manifest reports promoted version and exact application digest");
     Check(registry.DownloadHadNoCredentials, "Do not forward credentials to signed CDN");
-    registry.BadMetadataDigest = true;
-    var badNotes = await checker.Check(default);
-    Check(badNotes.Status == "available" && badNotes.Release is null && badNotes.NotesError is not null,
-        "Invalid notes digest cannot hide a confirmed image update or be accepted");
-    registry.BadMetadataDigest = false;
-    registry.WrongMetadataIdentity = true;
-    Check((await checker.Check(default)).NotesError is not null, "Reject release notes belonging to another image");
-    registry.WrongMetadataIdentity = false;
+    registry.WrongManifestIdentity = true;
+    try { await checker.Check(default); throw new Exception("Mismatched channel manifest identity must fail."); }
+    catch (RequestException ex) { Check(ex.Status == 502, "Reject manifest that does not match the image build identity"); }
+    registry.WrongManifestIdentity = false;
 
     var builder = Host.CreateApplicationBuilder();
     builder.Services.AddSingleton(checker);
@@ -116,6 +146,11 @@ try
     var clock = new TestClock();
     using var monitor = new UpdateMonitor(host.Services.GetRequiredService<IServiceScopeFactory>(), identity,
         NullLogger<UpdateMonitor>.Instance, clock);
+    Check(monitor.IntervalHours == 12, "Scheduled update interval is configurable");
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS", "0");
+    Reject(() => new UpdateMonitor(host.Services.GetRequiredService<IServiceScopeFactory>(), identity,
+        NullLogger<UpdateMonitor>.Instance, clock), "Reject out-of-range scheduled update interval");
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS", null);
     Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", null);
     var requests = registry.Requests;
     Check((await monitor.Check(default)).Status == "disabled" && requests == registry.Requests, "Cached checks respect opt-in");
@@ -140,6 +175,8 @@ finally
     Environment.SetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES", null);
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_USERNAME", null);
     Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_TOKEN", null);
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHANNEL", null);
+    Environment.SetEnvironmentVariable("ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS", null);
     SqliteConnection.ClearAllPools();
     Directory.Delete(directory, true);
 }
@@ -149,25 +186,8 @@ sealed class RegistryFixture : HttpMessageHandler
     public int Requests { get; private set; }
     public bool DownloadHadNoCredentials { get; private set; }
     public bool Fail { get; set; }
-    public bool BadMetadataDigest { get; set; }
-    public bool WrongMetadataIdentity { get; set; }
-    private byte[]? savedMetadata;
-    private bool savedWrongIdentity;
-    private byte[] Metadata()
-    {
-        if (savedMetadata is not null && savedWrongIdentity == WrongMetadataIdentity) return savedMetadata;
-        using var output = new MemoryStream();
-        using (var gzip = new GZipStream(output, CompressionMode.Compress, true))
-        using (var tar = new TarWriter(gzip))
-        {
-            var value = new ReleaseInfo(1, "1.3.0-development.143", "development",
-                new string(WrongMetadataIdentity ? 'a' : 'b', 40), null, "Upcoming release notes.", [], []);
-            using var json = new MemoryStream(JsonSerializer.SerializeToUtf8Bytes(value, Json.Options));
-            tar.WriteEntry(new PaxTarEntry(TarEntryType.RegularFile, "release-info.json") { DataStream = json });
-        }
-        savedWrongIdentity = WrongMetadataIdentity;
-        return savedMetadata = output.ToArray();
-    }
+    public bool WrongManifestIdentity { get; set; }
+
     protected override Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         Requests++;
@@ -176,14 +196,20 @@ sealed class RegistryFixture : HttpMessageHandler
         if (request.RequestUri!.Host == "pkg-containers.githubusercontent.com")
         {
             DownloadHadNoCredentials = request.Headers.Authorization is null;
-            if (request.RequestUri.AbsolutePath == "/release")
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(Metadata()) });
             body = new { config = new { Labels = new Dictionary<string, string>
             {
-                ["org.opencontainers.image.version"] = "1.3.0-development.143",
-                ["org.opencontainers.image.revision"] = new string('b', 40),
-                ["io.romchecker.channel"] = "development", ["io.romchecker.build-number"] = "143",
-                ["io.romchecker.schema-version"] = "1"
+                ["io.romchecker.manifest-format-version"] = "1",
+                ["io.romchecker.channel"] = "internal",
+                ["io.romchecker.version"] = "1.3.0-internal.143+bbbbbbb",
+                ["io.romchecker.build-version"] = "1.3.0-internal.143+bbbbbbb",
+                ["io.romchecker.image"] = "ghcr.io/phthisicus/rom-checker",
+                ["io.romchecker.image-tag"] = "1.3.0-internal.143-bbbbbbb",
+                ["io.romchecker.image-digest"] = "sha256:" + new string('c', 64),
+                ["io.romchecker.schema-version"] = "1",
+                ["io.romchecker.commit"] = new string(WrongManifestIdentity ? 'a' : 'b', 40),
+                ["io.romchecker.build-number"] = "143",
+                ["io.romchecker.published-utc"] = "2026-11-11T12:00:00Z",
+                ["io.romchecker.release-notes-url"] = "https://github.com/Phthisicus/ROM-Checker/commit/" + new string('b', 40)
             } } };
         }
         else if (request.RequestUri.AbsolutePath == "/token")
@@ -194,32 +220,17 @@ sealed class RegistryFixture : HttpMessageHandler
         else
         {
             if (request.Headers.Authorization?.ToString() != "Bearer fixture-registry-token") throw new Exception("Expected scoped registry token");
-            var metadata = Metadata();
-            var digest = "sha256:" + Convert.ToHexStringLower(SHA256.HashData(metadata));
-            if (request.RequestUri.AbsolutePath.EndsWith("-metadata"))
-            {
-                body = new { layers = new[] { new { digest, size = metadata.Length,
-                    mediaType = "application/vnd.oci.image.layer.v1.tar+gzip" } } };
-                return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
-                    { Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json") });
-            }
             if (request.RequestUri.AbsolutePath.Contains("/blobs/"))
             {
                 var redirect = new HttpResponseMessage(HttpStatusCode.TemporaryRedirect);
-                redirect.Headers.Location = new Uri("https://pkg-containers.githubusercontent.com/"
-                    + (request.RequestUri.AbsolutePath.EndsWith(digest) ? "release" : "fixture"));
-                if (BadMetadataDigest && request.RequestUri.AbsolutePath.EndsWith(digest))
-                    return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK) { Content = new ByteArrayContent(new byte[metadata.Length]) });
+                redirect.Headers.Location = new Uri("https://pkg-containers.githubusercontent.com/config");
                 return Task.FromResult(redirect);
             }
-
-            body = request.RequestUri.AbsolutePath.EndsWith("/development")
-                ? (object)new { manifests = new[] { new { digest = "sha256:" + new string('c', 64), platform = new { os = "linux", architecture = System.Runtime.InteropServices.RuntimeInformation.ProcessArchitecture == System.Runtime.InteropServices.Architecture.Arm64 ? "arm64" : "amd64" } } } }
-                : new { config = new { digest = "sha256:" + new string('d', 64) } };
+            body = new { config = new { digest = "sha256:" + new string('d', 64) } };
         }
         return Task.FromResult(new HttpResponseMessage(HttpStatusCode.OK)
         {
-            Content = new StringContent(JsonSerializer.Serialize(body), Encoding.UTF8, "application/json")
+            Content = new StringContent(JsonSerializer.Serialize(body), System.Text.Encoding.UTF8, "application/json")
         });
     }
 }

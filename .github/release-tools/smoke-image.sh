@@ -23,7 +23,7 @@ echo "$release" | jq -e --argjson build "$identity" '
 test "$(docker run --rm --entrypoint cat "$image" /app/release-notes.md)" = "$(echo "$release" | jq -r .notes)"
 echo "$identity" | jq -e --arg version "$version" --arg revision "$revision" '
   .version == $version and .commit == $revision and .schemaVersion == 1
-  and (.channel == "development" or .channel == "beta" or .channel == "stable")
+  and (.channel == "development" or .channel == "internal" or .channel == "beta" or .channel == "rc" or .channel == "stable")
   and (.buildNumber > 0) and (.buildAttempt > 0)
   and (.builtUtc | test("^[0-9]{4}-"))
   and (.workflowUrl | test("^https://github.com/Phthisicus/ROM-Checker/actions/runs/[0-9]+$"))'

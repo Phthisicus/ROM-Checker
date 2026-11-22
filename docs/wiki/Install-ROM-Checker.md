@@ -18,13 +18,11 @@ stable releases. For a reproducible installation, set `ROMCHECKER_IMAGE` to the
 exact image version or digest from the matching release page, as shown below.
 Use deployment files from that same release tag.
 
-**Before 0.2.0 is published**, neither its tag nor the stable image is guaranteed
-to exist. For prerelease testing, use the matching beta or development checkout
-and explicitly set `ROMCHECKER_IMAGE` to its published image version or channel
-(`ghcr.io/phthisicus/rom-checker:beta` or `:development`). Wait for that channel's
-delivery to succeed; source changes alone do not update a published image.
+For prerelease testing, set `ROMCHECKER_IMAGE` to a published beta version/tag or
+an exact internal versioned tag. Set `ROMCHECKER_UPDATE_CHANNEL` to `beta` or
+`internal` to match; source changes alone do not update a published image.
 For a beta deployment, replace the `0.2.0` image in the example below with
-`beta` or the exact published beta version.
+the exact published beta version and use a separate Compose project and data.
 
 ## 2. Configure storage and credentials
 

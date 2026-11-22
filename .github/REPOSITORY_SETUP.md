@@ -57,3 +57,16 @@ Keep the README as the project landing page. Use `docs/README.md` as the documen
 - Upload `assets/brands/social-preview.png` in repository settings.
 - Review the repository's existing visibility and access settings before describing the project as publicly available.
 - Enable private vulnerability reporting if desired and available; `SECURITY.md` does not assume that it is enabled.
+
+## Development, Actions, and release settings
+
+Repository files define workflows and least-privilege job permissions; they cannot create or protect branches, configure environments, or change package visibility. Apply and verify these settings manually in GitHub:
+
+- Establish `main` from the exact published `v0.2.0` stable source and `develop` from the current integrated development source. The checked-out legacy branch is named `development`; migrate it only after confirming the remote branch and default-branch state. Do not move or overwrite existing release tags.
+- Set `main` as the default branch. Protect both `main` and `develop`; require pull requests, up-to-date `Required checks`, resolved conversations, and block force pushes and deletion. For a solo maintainer, zero required external approvals is sufficient if that is the intended policy. Apply branch protection only after the new workflows exist on both branches.
+- Permit GitHub Actions to create pull-request check results and grant package write permission only to build/promotion jobs. The internal build allocator also needs Actions write permission to persist `ROMCHECKER_INTERNAL_BUILD_NUMBER`; it starts from the checked-in seed `31` when that repository variable is absent.
+- Grant this repository's Actions workflows write access to the `ghcr.io/phthisicus/rom-checker` package. Anonymous package read access is required for public update checks. Private package reads use only server-side package-read credentials; never add a write token to the application.
+- Create the `beta`, `release-candidate`, and `production` Actions environments. Use required reviewers on `production`; add reviewers to beta/RC only if desired. Set the production environment deployment branch/tag policy to approved stable tags.
+- Review Actions' default workflow permissions and the package's repository access independently. Do not treat successful workflow-file changes as proof that any setting was applied.
+
+The configured next release target is `.github/release-config.json` (`0.3.0`). Before running a promotion, confirm it matches the intended release cycle. The first new internal build uses build number `32` unless the persistent repository variable is already higher.

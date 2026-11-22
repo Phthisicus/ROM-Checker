@@ -24,12 +24,12 @@ together: the combined file inherits ROM Checker's services from the standalone
 file. Use **only** `-f compose.romm.yml` for this path, not two running stacks.
 
 The example defaults to the stable `latest` image. Pin `ROMCHECKER_IMAGE` to the
-matching release version or digest for repeatable deployments. Before the first
-stable release, use a matching beta or development checkout and explicitly select
-its published image version or `:beta` / `:development` channel. Wait for delivery
-to succeed; do not assume `latest` or the 0.2.0 tag exists.
+matching release version or digest for repeatable deployments. For prerelease
+testing, use a published beta version or exact internal image version, set
+`ROMCHECKER_UPDATE_CHANNEL` to match, and isolate the test stack and data. Wait
+for delivery to succeed before pulling; source changes alone do not publish images.
 For a beta deployment, replace the `0.2.0` image in the example below with
-`beta` or the exact published beta version.
+the exact published beta version.
 
 ## 2. Create dedicated directories and secrets
 

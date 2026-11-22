@@ -1,0 +1,15 @@
+name: Feature build
+
+on:
+  push:
+    branches:
+      - 'feature/**'
+      - 'bugfix/**'
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Feature and bugfix validation
+    uses: ./.github/workflows/ci.yml

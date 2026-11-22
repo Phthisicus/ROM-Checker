@@ -11,11 +11,13 @@ Thank you for helping improve ROM Checker. Contributions should preserve the exi
 
 ## Development workflow
 
-1. Create a feature branch from `development`.
+1. Create `feature/<description>` or `bugfix/<description>` from `develop`. Use `release/<version>` from `develop` for stabilization and `hotfix/<description>` from `main` for production emergencies. Check the current branch before editing.
 2. Keep changes focused and use a Conventional Commit pull request title, such as `fix(storage): preserve interrupted uploads`.
 3. Add a uniquely named JSON release note under `.github/release-notes/` for meaningful application or pipeline changes. Follow the examples and allowed types in [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md#feature-focused-release-notes). Documentation-only changes do not need an application release note unless they change release or pipeline behavior.
-4. Open a pull request targeting `development` and use the repository pull request template.
-5. Feature pull requests are squash-merged. Branch promotions from `development` to `beta` and `beta` to `main` use merge commits; contributors should not perform promotions unless they are responsible for the release.
+4. Open a pull request targeting `develop` and use the repository pull request template.
+5. Never edit `main` or `develop` directly. Beta and RC are manual image promotions, not branches. Stable publication requires an approved RC, a Git tag, and explicit maintainer authorization.
+
+Local Copilot Chat uses the currently checked-out branch; opening a new chat does not create one. Copilot Coding Agent uses a GitHub-managed branch/worktree, but its base still needs to be checked.
 
 ## Tests
 

@@ -1,0 +1,165 @@
+name: Stable release
+
+on:
+  push:
+    tags:
+      - 'v*'
+      - '!v*-*'
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    name: Complete CI validation
+    uses: ./.github/workflows/ci.yml
+
+  publish:
+    name: Promote the approved RC digest to stable
+    needs: checks
+    runs-on: ubuntu-24.04
+    environment: production
+    timeout-minutes: 45
+    permissions:
+      contents: write
+      packages: write
+    env:
+      IMAGE: ghcr.io/phthisicus/rom-checker
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RELEASE_TAG: ${{ github.ref_name }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Record publication time
+        id: published
+        run: echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Validate stable tag and approved source history
+        id: target
+        run: |
+          [[ "$RELEASE_TAG" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]
+          VERSION="${RELEASE_TAG#v}"
+          node .github/release-tools/semver.mjs validate-target "$VERSION" >/dev/null
+          CONFIGURED="$(jq -r .nextRelease .github/release-config.json)"
+          [[ "$VERSION" == "$CONFIGURED" ]] || {
+            echo "Stable tag does not match the explicitly configured next release target." >&2
+            exit 1
+          }
+          git fetch origin main
+          git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+          if gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+            echo "A release already exists for $RELEASE_TAG; refusing to overwrite it." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: Select latest release candidate for this target
+        id: candidate
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+        run: |
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | .tag_name' \
+            | grep -E "^v${VERSION//./\\.}-rc\\.[1-9][0-9]*$" \
+            | sort -V | tail -n 1 > "$RUNNER_TEMP/rc-tag"
+          RC_TAG="$(cat "$RUNNER_TEMP/rc-tag")"
+          [[ -n "$RC_TAG" ]] || { echo "No published RC exists for $VERSION." >&2; exit 1; }
+          mkdir -p "$RUNNER_TEMP/romchecker-rc"
+          gh release download "$RC_TAG" --repo "$GH_REPO" \
+            --pattern release-manifest.json --dir "$RUNNER_TEMP/romchecker-rc"
+          # shellcheck disable=SC2016
+          jq -e --arg version "${RC_TAG#v}" --arg image "$IMAGE" \
+            '.formatVersion == 1 and .channel == "rc" and .version == $version and
+             .image == $image and .tag == $version and
+             (.digest | test("^sha256:[a-f0-9]{64}$")) and
+             (.commit | test("^[a-f0-9]{40}$")) and
+             (.buildNumber | type == "number" and . > 0) and
+             (.schemaVersion | type == "number" and . > 0) and
+             (.buildVersion | test("^[0-9]+\\.[0-9]+\\.[0-9]+-internal\\.[1-9][0-9]*\\+[a-f0-9]{7}$"))' \
+            "$RUNNER_TEMP/romchecker-rc/release-manifest.json" >/dev/null
+          {
+            echo "tag=$RC_TAG"
+            echo "version=${RC_TAG#v}"
+            echo "digest=$(jq -r .digest "$RUNNER_TEMP/romchecker-rc/release-manifest.json")"
+            echo "source_sha=$(jq -r .commit "$RUNNER_TEMP/romchecker-rc/release-manifest.json")"
+            echo "build_version=$(jq -r .buildVersion "$RUNNER_TEMP/romchecker-rc/release-manifest.json")"
+            echo "build_number=$(jq -r .buildNumber "$RUNNER_TEMP/romchecker-rc/release-manifest.json")"
+            echo "schema_version=$(jq -r .schemaVersion "$RUNNER_TEMP/romchecker-rc/release-manifest.json")"
+          } >> "$GITHUB_OUTPUT"
+          echo "rc_image_tag=$(jq -r .tag "$RUNNER_TEMP/romchecker-rc/release-manifest.json")" >> "$GITHUB_OUTPUT"
+      - name: Verify the RC digest and its source is in the stable tag
+        env:
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          BUILD_VERSION: ${{ steps.candidate.outputs.build_version }}
+          BUILD_NUMBER: ${{ steps.candidate.outputs.build_number }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+          RC_IMAGE_TAG: ${{ steps.candidate.outputs.rc_image_tag }}
+        run: |
+          [[ "$BUILD_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+-internal\.([1-9][0-9]*)\+([a-f0-9]{7})$ ]]
+          [[ "${BASH_REMATCH[1]}" == "$BUILD_NUMBER" && "$SOURCE_SHA" == "${BASH_REMATCH[2]}"* ]]
+          git merge-base --is-ancestor "$SOURCE_SHA" "$GITHUB_SHA"
+          ACTUAL="$(docker buildx imagetools inspect "$IMAGE:$RC_IMAGE_TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$ACTUAL" == "$DIGEST" ]]
+          RESOLVED="$(docker buildx imagetools inspect "$IMAGE@$DIGEST" --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$RESOLVED" == "$DIGEST" ]]
+      - name: Promote the exact RC image digest
+        env:
+          SOURCE_REF: ${{ env.IMAGE }}@${{ steps.candidate.outputs.digest }}
+          TARGET_TAG: ${{ steps.target.outputs.version }}
+          EXPECTED_DIGEST: ${{ steps.candidate.outputs.digest }}
+        run: |
+          bash .github/release-tools/promote-image.sh
+          docker buildx imagetools create --tag "$IMAGE:latest" "$IMAGE@$EXPECTED_DIGEST"
+          test "$(docker buildx imagetools inspect "$IMAGE:latest" --format '{{json .Manifest}}' | jq -r .digest)" = "$EXPECTED_DIGEST"
+      - name: Publish stable update manifest for the same digest
+        id: manifest
+        env:
+          CHANNEL: stable
+          VERSION: ${{ steps.target.outputs.version }}
+          BUILD_VERSION: ${{ steps.candidate.outputs.build_version }}
+          IMAGE_TAG: ${{ steps.target.outputs.version }}
+          IMAGE_DIGEST: ${{ steps.candidate.outputs.digest }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          BUILD_NUMBER: ${{ steps.candidate.outputs.build_number }}
+          SCHEMA_VERSION: ${{ steps.candidate.outputs.schema_version }}
+          PUBLISHED_UTC: ${{ steps.published.outputs.utc }}
+          RELEASE_NOTES_URL: https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}
+        run: bash .github/release-tools/publish-channel-manifest.sh
+      - name: Publish stable release and traceability assets
+        env:
+          VERSION: ${{ steps.target.outputs.version }}
+          BUILD_VERSION: ${{ steps.candidate.outputs.build_version }}
+          SOURCE_SHA: ${{ steps.candidate.outputs.source_sha }}
+          BUILD_NUMBER: ${{ steps.candidate.outputs.build_number }}
+          SCHEMA_VERSION: ${{ steps.candidate.outputs.schema_version }}
+          DIGEST: ${{ steps.candidate.outputs.digest }}
+          MANIFEST_DIGEST: ${{ steps.manifest.outputs.manifest_digest }}
+        run: |
+          # shellcheck disable=SC2016
+          mkdir -p "$RUNNER_TEMP/romchecker-release"
+          jq -n \
+            --arg channel stable --arg version "$VERSION" --arg buildVersion "$BUILD_VERSION" \
+            --arg image "$IMAGE" --arg tag "$VERSION" --arg digest "$DIGEST" \
+            --arg commit "$SOURCE_SHA" --arg build "$BUILD_NUMBER" \
+            --arg manifestDigest "$MANIFEST_DIGEST" --arg schema "$SCHEMA_VERSION" \
+            "{formatVersion:1,channel:\$channel,version:\$version,buildVersion:\$buildVersion,image:\$image,tag:\$tag,digest:\$digest,commit:\$commit,buildNumber:(\$build|tonumber),schemaVersion:(\$schema|tonumber),channelManifestDigest:\$manifestDigest}" \
+            > "$RUNNER_TEMP/romchecker-release/release-manifest.json"
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > "$RUNNER_TEMP/romchecker-release/image-digest.txt"
+          gh release create "$RELEASE_TAG" --repo "$GH_REPO" --verify-tag \
+            --title "ROM Checker $VERSION" --generate-notes
+          gh release upload "$RELEASE_TAG" --repo "$GH_REPO" \
+            "$RUNNER_TEMP/romchecker-release/release-manifest.json" \
+            "$RUNNER_TEMP/romchecker-release/image-digest.txt"
+          printf '## ROM Checker %s\n\nImage: `%s:%s`\n\nDigest: `%s`\n\nApproved RC: `v%s`\n\nBuild: `%s`\n\nSource: `%s`\n' \
+            "$VERSION" "$IMAGE" "$VERSION" "$DIGEST" "${{ steps.candidate.outputs.version }}" "$BUILD_VERSION" "$SOURCE_SHA" \
+            >> "$GITHUB_STEP_SUMMARY"

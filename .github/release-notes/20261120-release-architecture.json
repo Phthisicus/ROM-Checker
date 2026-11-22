@@ -1,0 +1,7 @@
+{
+  "type": "feature",
+  "title": "Add explicit release channels and digest-preserving promotions",
+  "description": "Adds configurable SemVer release targets, persistent internal build numbering, automated internal images, and manual beta and release-candidate promotion workflows. Promotions preserve the selected image digest and publish separate channel metadata for application update notifications.",
+  "upgrade": "The migration does not rename remote branches, change the default branch, publish packages, or move existing tags. Preserve the existing 0.2.0 stable release and legacy image tags; create and protect main and develop from the documented source branches before enabling the new delivery workflows. The initial next release target is explicitly configured as 0.3.0.",
+  "limitations": "GitHub branch protections, Actions environments and approvals, Actions permissions, and GHCR package access must be configured manually. Update checks are opt-in and only notify; image deployment remains an operator action."
+}

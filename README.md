@@ -4,7 +4,7 @@
 
 **Know your ROMs. Protect your originals. Build a better collection.**
 
-[![CI and delivery](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml/badge.svg?branch=development)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml)
+[![CI](https://github.com/Phthisicus/ROM-Checker/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/ci.yml)
 ![Deployment: self-hosted](https://img.shields.io/badge/deployment-self--hosted-91d900)
 ![Container platform: Linux amd64](https://img.shields.io/badge/container-Linux%20amd64-555555)
 
@@ -61,8 +61,9 @@ integration features work.
 
 Documentation sources are also available [in this checkout](docs/wiki/Home.md).
 The combined Compose file extends `compose.yml`; keep both files together.
-Examples default to the stable `latest` image. Before the first stable release,
-explicitly select a published beta or development image for prerelease testing.
+Examples default to the stable `latest` image. For prerelease testing, select a
+published beta or internal image explicitly and use a separate Compose project
+and data volumes.
 
 ## Before you start
 

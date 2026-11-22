@@ -14,10 +14,10 @@ Describe the relevant automated checks and any manual verification.
 
 ## Promotion
 
-- Feature/fix: target `development`; use a Conventional Commit title.
-- Beta promotion: merge `development` into `beta` without squashing.
-- Stable promotion: merge `beta` into `main` without squashing.
-- Emergency fix: use `hotfix/*` into `main`, then merge it back into `development` and `beta`.
+- Feature/fix: target `develop` from `feature/*` or `bugfix/*`.
+- Release stabilization: create `release/<version>` from `develop`; merge approved release changes into `main`.
+- Emergency fix: use `hotfix/*` from `main`, release it, then integrate the fix back into `develop`.
+- Beta, RC, and stable publication are explicit manual/tagged promotions; do not publish from a feature or `develop` branch.
 
 ## Compatibility and data safety
 

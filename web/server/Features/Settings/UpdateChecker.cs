@@ -1,8 +1,5 @@
 using System.Net.Http.Headers;
-using System.Formats.Tar;
-using System.IO.Compression;
 using System.Runtime.InteropServices;
-using System.Security.Cryptography;
 using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
@@ -11,7 +8,9 @@ namespace RomChecker.Web.Features.Settings;
 
 public sealed record UpdateResult(string Status, string Message, string? Version = null,
     string? Commit = null, long? BuildNumber = null, bool? SchemaCompatible = null,
-    ReleaseInfo? Release = null, string? NotesError = null);
+    ReleaseInfo? Release = null, string? NotesError = null, string? BuildVersion = null,
+    string? ImageDigest = null, string? ReleaseNotesUrl = null, string? ImageTag = null,
+    DateTimeOffset? PublishedUtc = null, string? ImageRepository = null);
 
 public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogger<UpdateChecker> logger)
 {
@@ -22,6 +21,7 @@ public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogge
     {
         if (Environment.GetEnvironmentVariable("ROMCHECKER_CHECK_UPDATES") != "true")
             return new("disabled", "Update checks are opt-in. Set ROMCHECKER_CHECK_UPDATES=true on the server. No request was sent.");
+        var channel = SelectedChannel;
         if (current.Channel == "local")
             return new("unavailable", "Local builds have no published update channel.");
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellation);
@@ -44,8 +44,9 @@ public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogge
             using var tokenJson = JsonDocument.Parse(await tokenResponse.Content.ReadAsStringAsync(timeout.Token));
             var token = tokenJson.RootElement.GetProperty("token").GetString()
                 ?? throw new InvalidOperationException("Registry did not return an access token.");
-            var tag = current.Channel switch { "stable" => "latest", "beta" => "beta", _ => "development" };
-            using var manifest = await Read($"manifests/{tag}", token, timeout.Token);
+            if (channel is not ("stable" or "beta" or "internal"))
+                return new("unavailable", $"The {channel} channel does not publish update manifests.");
+            using var manifest = await Read($"manifests/{channel}-manifest", token, timeout.Token);
             JsonDocument? platformManifest = null;
             try
             {
@@ -68,20 +69,23 @@ public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogge
                 using var config = await Read($"blobs/{Digest(root.GetProperty("config").GetProperty("digest").GetString())}", token, timeout.Token);
                 var labels = config.RootElement.GetProperty("config").GetProperty("Labels");
                 string Label(string key) => labels.GetProperty(key).GetString() ?? throw new InvalidOperationException($"Missing image label: {key}");
-                var result = Evaluate(current, Label("org.opencontainers.image.version"), Label("io.romchecker.channel"),
-                    Label("org.opencontainers.image.revision"), long.Parse(Label("io.romchecker.build-number"), System.Globalization.CultureInfo.InvariantCulture),
-                    int.Parse(Label("io.romchecker.schema-version"), System.Globalization.CultureInfo.InvariantCulture));
-                if (result.Status != "available") return result;
-                try
-                {
-                    var release = await ReadRelease(result.Version!, result.Commit!, token, timeout.Token);
-                    return result with { Release = release };
-                }
-                catch (Exception ex) when (IsReadFailure(ex, cancellation) || ex is InvalidDataException or IOException)
-                {
-                    logger.LogWarning(ex, "Release notes unavailable for {Version}", result.Version);
-                    return result with { NotesError = "An image update was confirmed, but its release notes could not be retrieved. Retry later or review the source release before deploying." };
-                }
+                if (Label("io.romchecker.manifest-format-version") != "1"
+                    || Label("io.romchecker.channel") != channel
+                    || !Regex.IsMatch(Label("io.romchecker.image-digest"), "^sha256:[a-f0-9]{64}$")
+                    || !Regex.IsMatch(Label("io.romchecker.commit"), "^[a-f0-9]{40}$")
+                    || !long.TryParse(Label("io.romchecker.build-number"), out var buildNumber) || buildNumber < 1
+                    || !int.TryParse(Label("io.romchecker.schema-version"), out var schemaVersion) || schemaVersion < 1
+                    || !DateTimeOffset.TryParse(Label("io.romchecker.published-utc"), System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.RoundtripKind, out var publishedUtc))
+                    throw new InvalidOperationException("The update channel manifest is invalid.");
+                var published = EvaluateManifest(current, channel, Label("io.romchecker.version"),
+                    Label("io.romchecker.build-version"), Label("io.romchecker.commit"), buildNumber,
+                    Label("io.romchecker.image-digest"), Label("io.romchecker.release-notes-url"),
+                    Label("io.romchecker.image-tag"), schemaVersion, publishedUtc);
+                var imageRepository = Label("io.romchecker.image");
+                if (imageRepository != $"ghcr.io/{Package}")
+                    throw new InvalidOperationException("The update channel manifest references an unexpected image repository.");
+                return published with { ImageRepository = imageRepository };
             }
             finally { platformManifest?.Dispose(); }
         }
@@ -96,51 +100,6 @@ public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogge
         ex is HttpRequestException or JsonException or KeyNotFoundException
             or InvalidOperationException or FormatException or OverflowException
             || ex is OperationCanceledException && !cancellation.IsCancellationRequested;
-
-    private async Task<ReleaseInfo> ReadRelease(string version, string commit, string token, CancellationToken cancellation)
-    {
-        using var manifest = await Read($"manifests/{version}-metadata", token, cancellation);
-        var layers = manifest.RootElement.GetProperty("layers");
-        if (layers.GetArrayLength() != 1) throw new InvalidOperationException("Release metadata must have one bounded layer.");
-        var layer = layers[0];
-        var size = layer.GetProperty("size").GetInt64();
-        if (size is < 1 or > 2 * 1024 * 1024) throw new InvalidOperationException("Release metadata layer is too large.");
-        var digest = Digest(layer.GetProperty("digest").GetString());
-        var bytes = await ReadBytes($"blobs/{digest}", token, cancellation);
-        if (bytes.LongLength != size || "sha256:" + Convert.ToHexStringLower(SHA256.HashData(bytes)) != digest)
-            throw new InvalidOperationException("Release metadata layer digest does not match.");
-        using var compressed = new MemoryStream(bytes);
-        var mediaType = layer.GetProperty("mediaType").GetString();
-        using Stream content = mediaType switch
-        {
-            "application/vnd.oci.image.layer.v1.tar+gzip" or "application/vnd.docker.image.rootfs.diff.tar.gzip"
-                => new GZipStream(compressed, CompressionMode.Decompress),
-            "application/vnd.oci.image.layer.v1.tar" => new MemoryStream(bytes),
-            _ => throw new InvalidOperationException("Unsupported release metadata layer format.")
-        };
-        using var expanded = new MemoryStream();
-        var buffer = new byte[8192];
-        int count;
-        while ((count = await content.ReadAsync(buffer, cancellation)) > 0)
-        {
-            if (expanded.Length + count > 2 * 1024 * 1024)
-                throw new InvalidOperationException("Expanded release metadata is too large.");
-            expanded.Write(buffer, 0, count);
-        }
-        expanded.Position = 0;
-        using var tar = new TarReader(expanded);
-        ReleaseInfo? release = null;
-        while (tar.GetNextEntry() is { } entry)
-        {
-            if (entry.Name.TrimStart('.', '/') != "release-info.json") continue;
-            if (release is not null || entry.EntryType is not (TarEntryType.RegularFile or TarEntryType.V7RegularFile)
-                || entry.DataStream is null)
-                throw new InvalidOperationException("Invalid release metadata entry.");
-            release = await JsonSerializer.DeserializeAsync<ReleaseInfo>(entry.DataStream, Json.Options, cancellation);
-        }
-        return (release ?? throw new InvalidOperationException("Release information is missing."))
-            .Validate(version, current.Channel, commit);
-    }
 
     private async Task<JsonDocument> Read(string path, string token, CancellationToken cancellation) =>
         JsonDocument.Parse(await ReadBytes(path, token, cancellation));
@@ -167,6 +126,95 @@ public sealed class UpdateChecker(HttpClient http, BuildIdentity current, ILogge
 
     private static string Digest(string? value) => value is not null && Regex.IsMatch(value, "^sha256:[a-f0-9]{64}$")
         ? value : throw new InvalidOperationException("Invalid registry content digest.");
+
+    private string SelectedChannel => Environment.GetEnvironmentVariable("ROMCHECKER_UPDATE_CHANNEL")
+        ?? (current.Channel == "development" ? "development" : current.Channel);
+
+    public static UpdateResult EvaluateManifest(BuildIdentity current, string channel, string version,
+        string buildVersion, string commit, long buildNumber, string imageDigest, string releaseNotesUrl,
+        string imageTag, int schema, DateTimeOffset publishedUtc)
+    {
+        if (channel is not ("stable" or "beta" or "internal")
+            || !Regex.IsMatch(commit, "^[a-f0-9]{40}$")
+            || buildNumber < 1
+            || schema < 1
+            || !Regex.IsMatch(imageDigest, "^sha256:[a-f0-9]{64}$")
+            || !Regex.IsMatch(imageTag, "^[A-Za-z0-9_][A-Za-z0-9_.-]{0,127}$")
+            || !Uri.TryCreate(releaseNotesUrl, UriKind.Absolute, out var notesUri)
+            || notesUri.Scheme != Uri.UriSchemeHttps
+            || notesUri.Host != "github.com")
+            throw new InvalidOperationException("The update channel manifest is invalid.");
+        var releaseVersion = ParseChannelVersion(version, channel);
+        var build = ParseBuildVersion(buildVersion);
+        if (buildNumber != build.BuildNumber || !commit.StartsWith(build.Commit, StringComparison.Ordinal)
+            || releaseVersion.Major != build.Major || releaseVersion.Minor != build.Minor
+            || releaseVersion.Patch != build.Patch)
+            throw new InvalidOperationException("The promoted release does not match its immutable build identity.");
+        var compatible = schema == current.SchemaVersion;
+        var installedTargetComparison = CompareCore((releaseVersion.Major, releaseVersion.Minor, releaseVersion.Patch),
+            ParseCoreVersion(current.Version));
+        if (buildNumber == current.BuildNumber && commit != current.Commit)
+            throw new InvalidOperationException("The same build number points to different source commits.");
+        var isSameBuild = buildNumber == current.BuildNumber && commit == current.Commit
+            && buildVersion == current.Version;
+        var available = installedTargetComparison > 0
+            || installedTargetComparison == 0 && buildNumber > current.BuildNumber;
+        return new(available ? "available" : "current",
+            available
+                ? compatible
+                    ? $"Version {version} is available on the {channel} channel. Back up data before manually deploying; nothing was installed."
+                    : $"Version {version} is available, but its schema differs. Review migration and rollback requirements before deploying."
+                : isSameBuild
+                    ? $"This build is promoted as {version} on the {channel} channel."
+                    : $"This build is current or newer than the latest {channel} promotion.",
+            version, commit, buildNumber, compatible, null, null, buildVersion, imageDigest, releaseNotesUrl,
+            imageTag, publishedUtc);
+    }
+
+    private static (long Major, long Minor, long Patch, long BuildNumber, string Commit) ParseBuildVersion(string version)
+    {
+        var match = Regex.Match(version,
+            @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-internal\.([1-9]\d*)\+([a-f0-9]{7})$");
+        if (!match.Success) throw new InvalidOperationException("Invalid immutable internal build version.");
+        return (long.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture), match.Groups[5].Value);
+    }
+
+    private static (long Major, long Minor, long Patch) ParseChannelVersion(string version, string channel)
+    {
+        var pattern = channel switch
+        {
+            "stable" => @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$",
+            "beta" => @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-beta\.[1-9]\d*$",
+            "internal" => @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-internal\.[1-9]\d*\+[a-f0-9]{7}$",
+            _ => throw new InvalidOperationException("Unknown update channel.")
+        };
+        var match = Regex.Match(version, pattern);
+        if (!match.Success) throw new InvalidOperationException("Invalid update channel version.");
+        return (long.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
+
+    private static int CompareCore((long Major, long Minor, long Patch) left,
+        (long Major, long Minor, long Patch) right)
+    {
+        var major = left.Major.CompareTo(right.Major);
+        if (major != 0) return major;
+        var minor = left.Minor.CompareTo(right.Minor);
+        return minor != 0 ? minor : left.Patch.CompareTo(right.Patch);
+    }
+
+    private static (long Major, long Minor, long Patch) ParseCoreVersion(string version)
+    {
+        var match = Regex.Match(version, @"^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-|$)");
+        if (!match.Success) throw new InvalidOperationException("Invalid installed application version.");
+        return (long.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture),
+            long.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture));
+    }
 
     public static UpdateResult Evaluate(BuildIdentity current, string version, string channel, string commit, long buildNumber, int schema)
     {

@@ -4,6 +4,7 @@ COPY web/client/package*.json ./
 RUN npm ci --no-fund --no-audit
 COPY web/client/ ./
 COPY .github/release-tools/build-info.mjs ./build-info.mjs
+COPY .github/release-tools/semver.mjs ./semver.mjs
 COPY release-info.json ./release-info.json
 ARG VERSION=0.0.0-local
 ARG REVISION=development
