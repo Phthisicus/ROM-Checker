@@ -69,7 +69,7 @@ docker compose --env-file .env.romm -f compose.romm.yml up -d
 docker compose --env-file .env.romm -f compose.romm.yml ps
 ```
 
-`development`, `beta`, and `latest` are moving image aliases. Pin a published version
+`internal`, `beta`, and `latest` are moving image aliases. Pin a published version
 or digest for repeatable deployments. RomM is independently pinned in the combined
 example; upgrade it after reviewing compatibility and its own migration guidance.
 

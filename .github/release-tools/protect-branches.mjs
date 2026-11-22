@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process'
 
-const branches = ['development', 'beta', 'main']
+const branches = ['develop', 'main']
 const args = process.argv.slice(2)
 const apply = args.includes('--apply')
 const branchIndex = args.indexOf('--branch')
@@ -10,7 +10,7 @@ if (!/^[\w.-]+\/[\w.-]+$/.test(repository)) throw new Error('Invalid repository 
 if (args.some((arg, index) => !['--apply', '--confirm-emergency-access', '--branch'].includes(arg) && !(branchIndex >= 0 && index === branchIndex + 1))
   || (branchIndex >= 0 && !branches.includes(selected))
   || (apply && (!selected || !args.includes('--confirm-emergency-access'))))
-  throw new Error('Use --apply --branch development|beta|main --confirm-emergency-access after preview and establishing emergency access.')
+  throw new Error('Use --apply --branch develop|main --confirm-emergency-access after preview and establishing emergency access.')
 
 const desired = {
   required_status_checks: { strict: true, contexts: ['Required checks'] },

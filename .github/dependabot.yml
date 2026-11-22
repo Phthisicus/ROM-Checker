@@ -4,7 +4,7 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    target-branch: development
+    target-branch: develop
     groups:
       actions:
         patterns: ['*']
@@ -14,7 +14,7 @@ updates:
     directory: /web/client
     schedule:
       interval: weekly
-    target-branch: development
+    target-branch: develop
     open-pull-requests-limit: 5
     groups:
       frontend:
@@ -25,7 +25,7 @@ updates:
     directory: /web/server
     schedule:
       interval: weekly
-    target-branch: development
+    target-branch: develop
     open-pull-requests-limit: 5
     groups:
       backend:
@@ -36,6 +36,6 @@ updates:
     directory: /
     schedule:
       interval: weekly
-    target-branch: development
+    target-branch: develop
     commit-message:
       prefix: build

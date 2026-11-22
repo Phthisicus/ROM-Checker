@@ -7,19 +7,20 @@ public static class SettingsEndpoints
         var root = options.Root;
         var pathBase = options.PathBase;
         var engine = options.EngineDirectory;
-        api.MapGet("/info", (BuildIdentity build, DatabaseCompatibility schema) => new
+        api.MapGet("/info", (BuildIdentity build, DatabaseCompatibility schema, UpdateMonitor updates) => new
         {
             name = "ROM Checker", version = build.Version, commit = build.Commit,
-            buildNumber = build.BuildNumber, buildAttempt = build.BuildAttempt, channel = build.Channel,
+            buildNumber = build.BuildNumber, buildAttempt = build.BuildAttempt, channel = updates.Channel,
+            buildChannel = build.Channel,
             builtUtc = build.BuiltUtc, workflowUrl = build.WorkflowUrl, metadataFormatVersion = build.MetadataFormatVersion, schema,
             library = root, pathBase, platform = OperatingSystem.IsWindows() ? "Windows" : "Linux",
             antivirus = OperatingSystem.IsWindows() ? "Windows Defender" : "ClamAV"
         });
-        api.MapGet("/system", (ReleaseInfo release) => new
+        api.MapGet("/system", (ReleaseInfo release, UpdateMonitor updates) => new
         {
             system = SystemInformation.Read(), release,
             paths = new { library = root, data = options.Data, engine, pathBase },
-            updates = new { enabled = UpdateMonitor.Enabled, scheduled = UpdateMonitor.Scheduled }
+            updates = new { enabled = UpdateMonitor.Enabled, scheduled = UpdateMonitor.Scheduled, intervalHours = updates.IntervalHours }
         });
         api.MapGet("/diagnostics/build", (BuildIdentity build, DatabaseCompatibility schema) =>
             Results.File(System.Text.Json.JsonSerializer.SerializeToUtf8Bytes(new { build, schema, system = SystemInformation.Read() }, Json.Options),

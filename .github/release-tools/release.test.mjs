@@ -223,6 +223,11 @@ test('promotion policy accepts feature work and same-repository promotions, reje
     env: { ...process.env, PR_BASE: base, PR_HEAD: head, PR_TITLE: title, PR_HEAD_REPO: source, PR_BASE_REPO: 'owner/repo' }
   }).status
   assert.equal(run('development', 'feature/test', 'feat: add a console browser'), 0)
+  assert.equal(run('develop', 'feature/test', 'feat: add a console browser'), 0)
+  assert.equal(run('develop', 'bugfix/storage', 'fix: preserve interrupted uploads'), 0)
+  assert.equal(run('release/0.3.0', 'bugfix/storage', 'fix: preserve interrupted uploads'), 0)
+  assert.notEqual(run('release/0.3.0', 'feature/new-feature', 'feat: add a console browser'), 0)
+  assert.equal(run('main', 'release/0.3.0', 'chore: approve release candidate'), 0)
   assert.equal(run('beta', 'development', 'Promote tested development'), 0)
   assert.equal(run('main', 'beta', 'Release tested beta'), 0)
   assert.equal(run('main', 'hotfix/storage', 'fix: recover interrupted imports'), 0)
@@ -233,32 +238,32 @@ test('promotion policy accepts feature work and same-repository promotions, reje
 test('protected promotion branches can be synchronized without bypassing the promotion policy', () => {
   const directory = mkdtempSync(join(tmpdir(), 'romchecker-promotion-sync-'))
   try {
-    const git = (...args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim()
+    const git = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: directory, encoding: 'utf8' }).trim()
     const policy = (base, head, title) => spawnSync(process.execPath, [resolve('.github/release-tools/policy.mjs')], {
       env: { ...process.env, PR_BASE: base, PR_HEAD: head, PR_TITLE: title, PR_HEAD_REPO: 'owner/repo', PR_BASE_REPO: 'owner/repo' }
     }).status
-    git('init', '--quiet'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture')
+    git('init', '--quiet', '--initial-branch=fixture'); git('config', 'commit.gpgsign', 'false')
+    git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Fixture')
     writeFileSync(join(directory, 'content'), 'initial\n')
     git('add', '.'); git('commit', '--quiet', '-m', 'chore: initial fixture')
-    git('branch', 'development'); git('branch', 'beta'); git('branch', 'stable')
-    git('checkout', '--quiet', 'development')
+    git('branch', 'develop'); git('branch', 'release/0.3.0'); git('branch', 'main')
+    git('checkout', '--quiet', 'develop')
     writeFileSync(join(directory, 'content'), 'new feature\n')
     git('commit', '--quiet', '-am', 'feat: add feature')
-    git('checkout', '--quiet', 'beta'); git('merge', '--quiet', '--no-ff', 'development', '-m', 'Promote development')
-    git('checkout', '--quiet', 'stable'); git('merge', '--quiet', '--no-ff', 'beta', '-m', 'Promote beta')
+    git('checkout', '--quiet', 'release/0.3.0'); git('merge', '--quiet', '--no-ff', 'develop', '-m', 'Prepare release')
+    git('checkout', '--quiet', 'main'); git('merge', '--quiet', '--no-ff', 'release/0.3.0', '-m', 'Promote release')
     const isAncestor = (base, head) => spawnSync('git', ['merge-base', '--is-ancestor', base, head], { cwd: directory }).status === 0
-    assert.equal(isAncestor('beta', 'development'), false)
-    assert.equal(isAncestor('stable', 'beta'), false)
-    assert.equal(policy('development', 'beta', 'chore: sync beta history'), 0)
-    assert.equal(policy('development', 'main', 'chore: sync stable history'), 0)
-    git('checkout', '--quiet', 'development')
-    git('merge', '--quiet', '--no-ff', 'beta', '-m', 'Sync beta history')
-    git('merge', '--quiet', '--no-ff', 'stable', '-m', 'Sync stable history')
-    assert.equal(isAncestor('beta', 'development'), true)
-    assert.equal(policy('beta', 'development', 'Promote development'), 0)
-    git('checkout', '--quiet', 'beta'); git('merge', '--quiet', '--no-ff', 'development', '-m', 'Promote development')
-    assert.equal(isAncestor('stable', 'beta'), true)
-    assert.equal(policy('main', 'beta', 'Promote beta'), 0)
+    assert.equal(isAncestor('release/0.3.0', 'develop'), false)
+    assert.equal(isAncestor('main', 'release/0.3.0'), false)
+    assert.equal(policy('develop', 'release/0.3.0', 'chore: sync release history'), 0)
+    assert.equal(policy('develop', 'main', 'chore: sync stable history'), 0)
+    git('checkout', '--quiet', 'develop')
+    git('merge', '--quiet', '--no-ff', 'release/0.3.0', '-m', 'Sync release history')
+    git('merge', '--quiet', '--no-ff', 'main', '-m', 'Sync stable history')
+    assert.equal(isAncestor('release/0.3.0', 'develop'), true)
+    assert.equal(isAncestor('main', 'develop'), true)
+    assert.equal(policy('develop', 'release/0.3.0', 'chore: promote release branch'), 0)
+    assert.equal(policy('main', 'release/0.3.0', 'Promote release'), 0)
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 test('embedded metadata carries channel-specific notes and upgrade requirements without a circular image digest', () => {
@@ -418,7 +423,7 @@ const endpoint = args[1]
 if (endpoint.includes('/actions/permissions')) console.log('{"enabled":true}')
 else if (endpoint.includes('/actions/workflows/')) console.log('{"state":"active"}')
 else if (endpoint.includes('/rulesets')) console.log('[]')
-else if (endpoint.endsWith('/branches/development/protection') && process.env.PROTECTED === 'true') console.log(JSON.stringify({
+else if (endpoint.endsWith('/branches/main/protection') && process.env.PROTECTED === 'true') console.log(JSON.stringify({
   required_status_checks: {strict: true, contexts: ['Required checks']}, enforce_admins: {enabled: true},
   required_pull_request_reviews: {required_approving_review_count: 0}, required_conversation_resolution: {enabled: true},
   allow_force_pushes: {enabled: false}, allow_deletions: {enabled: false}
@@ -427,24 +432,24 @@ else if (endpoint.endsWith('/protection')) { console.error('HTTP 404'); process.
 else if (endpoint.includes('/contents/')) {
   if (process.env.MISSING === 'true' && endpoint.endsWith('ref=main')) { console.error('HTTP 404'); process.exitCode = 1 }
   else console.log(JSON.stringify({content: Buffer.from('  pull_request:\\n    name: Required checks\\n').toString('base64')}))
-} else console.log(JSON.stringify({protected: process.env.PROTECTED === 'true' && endpoint.endsWith('/branches/development')}))
+} else console.log(JSON.stringify({protected: process.env.PROTECTED === 'true' && endpoint.endsWith('/branches/main')}))
 `)
     chmodSync(gh, 0o755)
     const script = resolve('.github/release-tools/protect-branches.mjs')
     const env = { ...process.env, GITHUB_REPOSITORY: 'owner/repo', PATH: `${directory}:${process.env.PATH}`, CALLS: join(directory, 'calls') }
     const run = (args, extra = {}) => spawnSync(process.execPath, [script, ...args], { env: { ...env, ...extra }, encoding: 'utf8' })
-    assert.notEqual(run(['--apply', '--branch', 'development']).status, 0)
-    assert.notEqual(run(['--apply', '--branch', 'development', '--confirm-emergency-access'], { MISSING: 'true' }).status, 0)
+    assert.notEqual(run(['--apply', '--branch', 'develop']).status, 0)
+    assert.notEqual(run(['--apply', '--branch', 'develop', '--confirm-emergency-access'], { MISSING: 'true' }).status, 0)
     assert.ok(!readFileSync(env.CALLS, 'utf8').includes('"PUT"'))
-    assert.equal(run(['--apply', '--branch', 'development', '--confirm-emergency-access']).status, 0)
+    assert.equal(run(['--apply', '--branch', 'develop', '--confirm-emergency-access']).status, 0)
     const writes = readFileSync(env.CALLS, 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(args => args.includes('PUT'))
     assert.equal(writes.length, 1)
-    assert.ok(writes[0].includes('repos/owner/repo/branches/development/protection'))
-    assert.equal(run(['--apply', '--branch', 'beta', '--confirm-emergency-access'], { PROTECTED: 'true' }).status, 0)
-    assert.notEqual(run(['--apply', '--branch', 'development', '--confirm-emergency-access'], { PROTECTED: 'true' }).status, 0)
+    assert.ok(writes[0].includes('repos/owner/repo/branches/develop/protection'))
+    assert.notEqual(run(['--apply', '--branch', 'main', '--confirm-emergency-access'], { PROTECTED: 'true' }).status, 0)
+    assert.equal(run(['--apply', '--branch', 'develop', '--confirm-emergency-access'], { PROTECTED: 'true' }).status, 0)
     const allWrites = readFileSync(env.CALLS, 'utf8').trim().split('\n').map(line => JSON.parse(line)).filter(args => args.includes('PUT'))
     assert.equal(allWrites.length, 2)
-    assert.ok(allWrites[1].includes('repos/owner/repo/branches/beta/protection'))
+    assert.ok(allWrites[1].includes('repos/owner/repo/branches/develop/protection'))
   } finally { rmSync(directory, { recursive: true, force: true }) }
 })
 test('real git history yields incremental beta notes and cumulative stable notes; retries are deterministic', () => {
@@ -455,9 +460,10 @@ test('real git history yields incremental beta notes and cumulative stable notes
     mkdirSync(scripts, { recursive: true }); mkdirSync(notes, { recursive: true })
     copyFileSync(resolve('.github/release-tools/release.mjs'), join(scripts, 'release.mjs'))
     writeFileSync(join(directory, 'version.txt'), '1.0.0\n')
-    const git = (...args) => execFileSync('git', args, { cwd: directory, encoding: 'utf8' }).trim()
+    const git = (...args) => execFileSync('git', ['-c', 'commit.gpgsign=false', ...args], { cwd: directory, encoding: 'utf8' }).trim()
     const run = (...args) => execFileSync(process.execPath, [join(scripts, 'release.mjs'), ...args], { cwd: directory, encoding: 'utf8' })
-    git('init', '--quiet'); git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Release fixture')
+    git('init', '--quiet'); git('config', 'commit.gpgsign', 'false')
+    git('config', 'user.email', 'fixture@example.invalid'); git('config', 'user.name', 'Release fixture')
     git('add', '.'); git('commit', '--quiet', '-m', 'chore: initial fixture'); git('tag', 'v1.0.0')
     const previewFeature = { ...feature, upgrade: 'Back up before changing preview versions.',
       limitations: 'Requires shared storage.', knownIssues: 'Some artwork loads slowly.',

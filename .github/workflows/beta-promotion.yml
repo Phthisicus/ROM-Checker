@@ -1,0 +1,174 @@
+name: Beta promotion
+
+on:
+  workflow_dispatch:
+    inputs:
+      internal_image_tag:
+        description: Immutable Docker-compatible internal image tag
+        required: true
+        type: string
+      target_version:
+        description: Must match .github/release-config.json
+        required: false
+        type: string
+      release_notes:
+        description: Optional beta notes
+        required: false
+        type: string
+
+permissions:
+  checks: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: romchecker-beta-promotion
+  cancel-in-progress: false
+
+jobs:
+  promote:
+    name: Promote existing internal digest to beta
+    if: github.ref_name == 'develop' || github.ref_name == 'main'
+    runs-on: ubuntu-24.04
+    environment: beta
+    timeout-minutes: 30
+    env:
+      IMAGE: ghcr.io/phthisicus/rom-checker
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      SOURCE_TAG: ${{ inputs.internal_image_tag }}
+      REQUESTED_TARGET: ${{ inputs.target_version }}
+      RELEASE_NOTES: ${{ inputs.release_notes }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v7
+        with:
+          node-version: '24'
+          package-manager-cache: false
+      - name: Record publication time
+        id: published
+        run: echo "utc=$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$GITHUB_OUTPUT"
+      - uses: docker/setup-buildx-action@v4
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+      - name: Validate configured release target
+        id: target
+        run: |
+          TARGET="$(jq -r .nextRelease .github/release-config.json)"
+          node .github/release-tools/semver.mjs validate-target "$TARGET" >/dev/null
+          if [[ -n "$REQUESTED_TARGET" && "$REQUESTED_TARGET" != "$TARGET" ]]; then
+            echo "Requested target differs from the explicitly configured next release target." >&2
+            exit 1
+          fi
+          echo "version=$TARGET" >> "$GITHUB_OUTPUT"
+      - name: Verify the selected internal image and source CI
+        id: source
+        env:
+          TARGET: ${{ steps.target.outputs.version }}
+        run: |
+          [[ "$SOURCE_TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+-internal\.[1-9][0-9]*-[a-f0-9]{7}$ ]]
+          docker pull "$IMAGE:$SOURCE_TAG"
+          VERSION="$(docker inspect "$IMAGE:$SOURCE_TAG" --format '{{index .Config.Labels "org.opencontainers.image.version"}}')"
+          CHANNEL="$(docker inspect "$IMAGE:$SOURCE_TAG" --format '{{index .Config.Labels "io.romchecker.channel"}}')"
+          SOURCE_SHA="$(docker inspect "$IMAGE:$SOURCE_TAG" --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')"
+          BUILD_NUMBER="$(docker inspect "$IMAGE:$SOURCE_TAG" --format '{{index .Config.Labels "io.romchecker.build-number"}}')"
+          SCHEMA_VERSION="$(docker inspect "$IMAGE:$SOURCE_TAG" --format '{{index .Config.Labels "io.romchecker.schema-version"}}')"
+          [[ "$CHANNEL" == internal && "$VERSION" == "$TARGET-internal.$BUILD_NUMBER+"* ]]
+          [[ "$SOURCE_TAG" == "${VERSION/+/-}" ]]
+          [[ "$SOURCE_SHA" =~ ^[a-f0-9]{40}$ ]]
+          [[ "${VERSION##*+}" == "${SOURCE_SHA:0:7}" ]]
+          git fetch origin develop
+          git merge-base --is-ancestor "$SOURCE_SHA" origin/develop
+          gh api --paginate "repos/$GH_REPO/commits/$SOURCE_SHA/check-runs" \
+            --jq '.check_runs[] | select(.name | endswith("Required checks")) | select(.head_sha == "'"$SOURCE_SHA"'") | .conclusion' \
+            | grep -qx success
+          DIGEST="$(docker buildx imagetools inspect "$IMAGE:$SOURCE_TAG" --format '{{json .Manifest}}' | jq -r .digest)"
+          [[ "$DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          {
+            echo "version=$VERSION"
+            echo "source_sha=$SOURCE_SHA"
+            echo "build_number=$BUILD_NUMBER"
+            echo "schema_version=$SCHEMA_VERSION"
+            echo "digest=$DIGEST"
+          } >> "$GITHUB_OUTPUT"
+      - name: Allocate next beta version
+        id: beta
+        env:
+          TARGET: ${{ steps.target.outputs.version }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/romchecker"
+          gh api --paginate "repos/$GH_REPO/releases?per_page=100" --jq '.[] | .tag_name | ltrimstr("v")' \
+            > "$RUNNER_TEMP/romchecker/versions.txt"
+          VERSION="$(node .github/release-tools/semver.mjs next-prerelease beta "$TARGET" "$RUNNER_TEMP/romchecker/versions.txt")"
+          TAG="$(node .github/release-tools/semver.mjs docker-tag "$VERSION")"
+          if git ls-remote --exit-code origin "refs/tags/v$VERSION" >/dev/null 2>&1; then
+            echo "Release tag v$VERSION already exists; refusing duplicate publication." >&2
+            exit 1
+          fi
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+      - name: Promote the existing digest without rebuilding
+        env:
+          SOURCE_REF: ${{ env.IMAGE }}@${{ steps.source.outputs.digest }}
+          TARGET_TAG: ${{ steps.beta.outputs.tag }}
+          EXPECTED_DIGEST: ${{ steps.source.outputs.digest }}
+        run: |
+          bash .github/release-tools/promote-image.sh
+          docker buildx imagetools create --tag "$IMAGE:beta" "$IMAGE@$EXPECTED_DIGEST"
+          test "$(docker buildx imagetools inspect "$IMAGE:beta" --format '{{json .Manifest}}' | jq -r .digest)" = "$EXPECTED_DIGEST"
+      - name: Publish beta channel manifest for the same digest
+        id: manifest
+        env:
+          CHANNEL: beta
+          VERSION: ${{ steps.beta.outputs.version }}
+          BUILD_VERSION: ${{ steps.source.outputs.version }}
+          IMAGE_TAG: ${{ steps.beta.outputs.tag }}
+          IMAGE_DIGEST: ${{ steps.source.outputs.digest }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          BUILD_NUMBER: ${{ steps.source.outputs.build_number }}
+          SCHEMA_VERSION: ${{ steps.source.outputs.schema_version }}
+          PUBLISHED_UTC: ${{ steps.published.outputs.utc }}
+          RELEASE_NOTES_URL: https://github.com/${{ github.repository }}/releases/tag/v${{ steps.beta.outputs.version }}
+        run: bash .github/release-tools/publish-channel-manifest.sh
+      - name: Publish beta release record
+        env:
+          VERSION: ${{ steps.beta.outputs.version }}
+          TARGET_TAG: ${{ steps.beta.outputs.tag }}
+          SOURCE_SHA: ${{ steps.source.outputs.source_sha }}
+          BUILD_VERSION: ${{ steps.source.outputs.version }}
+          BUILD_NUMBER: ${{ steps.source.outputs.build_number }}
+          SCHEMA_VERSION: ${{ steps.source.outputs.schema_version }}
+          DIGEST: ${{ steps.source.outputs.digest }}
+          MANIFEST_DIGEST: ${{ steps.manifest.outputs.manifest_digest }}
+          PUBLISHED_UTC: ${{ steps.published.outputs.utc }}
+        run: |
+          # shellcheck disable=SC2016
+          mkdir -p "$RUNNER_TEMP/romchecker-release"
+          NOTES="$RELEASE_NOTES"
+          if [[ -z "$NOTES" ]]; then
+            NOTES="Promoted the existing internal build $BUILD_VERSION for beta testing. No application image rebuild was performed."
+          fi
+          printf '%s\n' "$NOTES" > "$RUNNER_TEMP/romchecker-release/notes.md"
+          jq -n \
+            --arg channel beta --arg version "$VERSION" --arg buildVersion "$BUILD_VERSION" \
+            --arg image "$IMAGE" --arg tag "$TARGET_TAG" --arg digest "$DIGEST" \
+            --arg commit "$SOURCE_SHA" --arg build "$BUILD_NUMBER" \
+            --arg schema "$SCHEMA_VERSION" --arg published "$PUBLISHED_UTC" --arg manifestDigest "$MANIFEST_DIGEST" \
+            "{formatVersion:1,channel:\$channel,version:\$version,buildVersion:\$buildVersion,image:\$image,tag:\$tag,digest:\$digest,commit:\$commit,buildNumber:(\$build|tonumber),schemaVersion:(\$schema|tonumber),publishedUtc:\$published,channelManifestDigest:\$manifestDigest}" \
+            > "$RUNNER_TEMP/romchecker-release/release-manifest.json"
+          printf '%s@%s\n' "$IMAGE" "$DIGEST" > "$RUNNER_TEMP/romchecker-release/image-digest.txt"
+          gh release create "v$VERSION" --target "$SOURCE_SHA" --prerelease \
+            --title "ROM Checker $VERSION — Beta" \
+            --notes-file "$RUNNER_TEMP/romchecker-release/notes.md"
+          gh release upload "v$VERSION" \
+            "$RUNNER_TEMP/romchecker-release/release-manifest.json" \
+            "$RUNNER_TEMP/romchecker-release/image-digest.txt"
+          {
+            printf '## ROM Checker %s (beta)\n\nImage: `%s:%s`\n\nDigest: `%s`\n\nSource build: `%s`\n\nChannel manifest digest: `%s`\n' \
+              "$VERSION" "$IMAGE" "$TARGET_TAG" "$DIGEST" "$BUILD_VERSION" "$MANIFEST_DIGEST"
+          } >> "$GITHUB_STEP_SUMMARY"

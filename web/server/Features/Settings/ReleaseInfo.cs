@@ -25,7 +25,7 @@ public sealed record ReleaseInfo(int MetadataFormatVersion, string Version, stri
             || UpgradeNotes is null || Limitations is null || KnownIssues is null
             || UpgradeNotes.Concat(Limitations).Concat(KnownIssues).Any(text => text is null || text.Length > 4000)
             || (ReleaseUrl is not null && !Regex.IsMatch(ReleaseUrl,
-                @"^https://github\.com/Phthisicus/ROM-Checker/(releases/tag/v\d+\.\d+\.\d+(?:-beta\.\d+)?|commit/[a-f0-9]{40})$")))
+                @"^https://github\.com/Phthisicus/ROM-Checker/(releases/tag/v\d+\.\d+\.\d+(?:-(?:beta|rc)\.\d+)?|commit/[a-f0-9]{40})$")))
             throw new InvalidOperationException("Release information does not match the image identity or supported format.");
         return this;
     }

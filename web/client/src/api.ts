@@ -33,7 +33,7 @@ export type Settings = {
 }
 export type Info = {
   name: string; version: string; commit: string; library: string; pathBase: string; platform: string; antivirus: string
-  buildNumber?: number; buildAttempt?: number; channel?: string; builtUtc?: string; workflowUrl?: string
+  buildNumber?: number; buildAttempt?: number; channel?: string; buildChannel?: string; builtUtc?: string; workflowUrl?: string
   schema?: { version: number; minimumSupported: number; maximumSupported: number }
   metadataFormatVersion?: number
 }
@@ -45,11 +45,12 @@ export type SystemDetails = {
   system: { scope: string; operatingSystem: string; architecture: string; runtime: string; startedUtc: string; uptimeSeconds: number }
   release: ReleaseInfo
   paths: { library: string; data: string; engine: string; pathBase: string }
-  updates: { enabled: boolean; scheduled: boolean }
+  updates: { enabled: boolean; scheduled: boolean; intervalHours?: number }
 }
 export type UpdateResult = {
   status: string; message: string; version?: string; commit?: string; buildNumber?: number
-  schemaCompatible?: boolean; release?: ReleaseInfo; notesError?: string
+  schemaCompatible?: boolean; release?: ReleaseInfo; notesError?: string; buildVersion?: string
+  imageDigest?: string; releaseNotesUrl?: string; imageTag?: string; publishedUtc?: string; imageRepository?: string
 }
 export type UpdateStatus = {
   status: string; message: string; lastAttemptUtc?: string; lastSuccessUtc?: string; stale?: boolean; result?: UpdateResult

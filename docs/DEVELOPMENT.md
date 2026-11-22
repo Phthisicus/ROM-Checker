@@ -1,245 +1,150 @@
 # Development and release guide
 
-## Branch ownership
+ROM Checker uses `main` for stable production source and `develop` for integration. Beta and RC are temporary promotions of immutable images, not permanent branches. Release target configuration is explicit in `.github/release-config.json`; update it through a reviewed change rather than deriving a version from a branch.
 
-| Branch | Role | Successful push |
+## Branch workflow
+
+| Branch | Create from | Use |
 |---|---|---|
-| `development` | Integrated feature and fix work | CI and development container; no Git tag or GitHub release |
-| `beta` | Preview testing | Versioned container and GitHub prerelease |
-| `main` | Production-ready releases | Versioned container and stable GitHub release |
+| `main` | Existing stable source | Stable production and hotfix integration |
+| `develop` | Current integrated development source | Feature/fix integration and automatic internal images |
+| `feature/<description>` | `develop` | New functionality |
+| `bugfix/<description>` | `develop` | Development fixes |
+| `release/<version>` | `develop` | Release stabilization and RC source |
+| `hotfix/<description>` | `main` | Production emergencies |
 
-Create feature branches from development. Submit PRs to development using Conventional Commit titles such as `feat(library): add console-scoped verification` or `fix(storage): preserve interrupted uploads`. Squash feature PRs so the reviewed title becomes the commit message.
+Never edit `main` or `develop` directly. Create focused branches with descriptive names, run relevant tests, and submit a PR using `.github/PULL_REQUEST_TEMPLATE.md`. Feature and bugfix PRs target `develop`; merge after `Required checks` succeeds. Merge an approved `release/*` branch into `main` only after RC validation. A hotfix starts at `main`, is released as a patch, then is merged back into `develop`. Delete temporary branches only after successful integration and explicit authorization.
 
-Promote development to beta, then beta to main, using **merge commits, not squash/rebase**. This preserves ancestry for future promotions, cumulative stable notes, and reliable comparison links. PR checks reject other promotion sources. Emergency fixes can use `hotfix/*` into main with a Conventional Commit title and release note. Immediately merge the fix back into development and beta; do not cherry-pick unrelated development features into main.
+### Using Copilot
 
-The pipeline intentionally does not switch your repository's default branch or change merge settings. Keep merge commits enabled for promotions. Optional squash merging is useful for feature PRs; GitHub's repository-wide default cannot enforce the correct method separately for each branch.
+Before asking Copilot to change code, check the current branch and worktree. A new local Copilot Chat does **not** create or select a Git branch: it edits the checked-out branch. Create the appropriate branch yourself, or authorize the agent to create it from the correct base. GitHub Copilot Coding Agent works in a GitHub-managed branch/worktree and usually submits a PR; still confirm its base and actual branch rather than assuming it is the same context as a local chat. Repository-specific rules are in `.github/copilot-instructions.md`.
 
-## Required CI
+### Migration from `development`
 
-Linux jobs are pinned to `ubuntu-24.04` to avoid automatic `ubuntu-latest` operating-system migrations. JavaScript actions use Node.js 24 runtimes; Trivy's composite action also uses a Node.js 24 cache action. These hosted workflows require a sufficiently recent GitHub Actions runner for Node.js 24; review runner requirements before moving them to self-hosted infrastructure.
+The legacy integration branch is named `development`, and older deployments may report `0.2.0-development.31`. This implementation does not rename remote branches, change the default branch, publish packages, or move tags. Before enabling new delivery:
 
-The repository's `global.json` selects the latest installed stable .NET 10 SDK feature band, even when newer major SDKs are installed. Install a .NET 10 SDK for local builds; the backend container uses the same selection.
+1. Confirm the remote `v0.2.0` stable tag/release and preserve its source and GHCR tags; do not overwrite or recreate them.
+2. Create `main` from the exact published stable source and `develop` from the existing integrated `development` source. If repository settings support renaming safely, review default-branch, PR, ruleset, and Actions references first. Keep legacy branches until the transition has been verified.
+3. Set `main` as the default branch, install these workflow files on both permanent branches, and configure their protection before accepting PRs.
+4. Keep `.github/release-config.json` at the explicitly confirmed target `0.3.0`. `internalBuildSeed: 31` makes the first new build `0.3.0-internal.32+<short-sha>`; the repository variable `ROMCHECKER_INTERNAL_BUILD_NUMBER` then persists and increments the counter. If an existing value is higher than 31, the next build uses that value plus one.
+5. Leave old stable, `beta`, and `development` image tags intact. New workflows publish only new versioned tags and channel aliases. No migration step publishes beta or stable.
 
-The `Required checks` job fails unless every gate succeeds:
+## CI and release notes
 
-- Promotion/title policy, release-note validation, release automation regression tests, and workflow linting.
-- Direct/transitive NuGet and lockfile dependency audits, including frontend build/test dependencies.
-- Frontend build/TypeScript checks and component tests.
-- API, canonical catalog, storage/SMB, RomM protocol fixture, and collection-engine regressions.
-- Ubuntu engine regressions and Windows PowerShell compatibility.
-- Actual browser workflows, reverse-proxy subpath behavior, and isolated redesigned-library browser coverage.
-- Docker build, vulnerability scanning, non-root boot, authentication, and storage integration.
+`ci.yml` runs the application, engine, dependency, security, browser, container, and workflow checks. `feature-build.yml` runs CI for feature/bugfix pushes without publishing beta/stable images. PR validation builds a disposable container and never has package-write permission. `integration-build.yml` runs full CI, builds the application, stamps a single baked build identity, publishes an immutable GHCR tag with SBOM/provenance, records its digest, and updates the internal channel manifest only for `develop`.
 
-Container readiness probes tolerate transient refused/reset connections for up to 60 seconds. A stopped container fails immediately with startup logs; a running container that never serves a successful health response fails at the deadline. CI tests both storage readiness inside its container and application readiness through the published host port.
+Add a uniquely named `.github/release-notes/*.json` entry for meaningful application or pipeline changes. Entries are append-only. Use an end-user benefit, factual limitations, and explicit upgrade instructions for breaking changes. The release-note validator checks note structure and references. Run:
 
-On PRs, checkout uses GitHub's proposed merge commit. The container job plans the target channel's release metadata from that commit, stamps release versions where applicable, builds without publishing, and checks image, frontend and runtime identity. This is a preview: the final merge SHA, available tags and resulting version can change before delivery.
-
-Container and dependency scanners block fixable **HIGH/CRITICAL** vulnerabilities; unfixed operating-system/library findings are not blockers in this initial policy. Review scan output instead of treating a passing gate as a guarantee of safety. Do not blanket-disable scanners to release. Any future exception must identify the CVE, justification, owner, and expiry and be reviewed like code. Trivy database/network errors fail the check rather than bypassing it.
-
-No publishing credentials are supplied to PR workflows. Do not change these jobs to `pull_request_target` or execute untrusted PR code with write credentials. Delivery gets publication permissions only after reusable CI succeeds. There is no publishing trigger for feature branches or tags.
-
-Development pushes publish a readable version such as `0.3.0-development.142` plus `development-sha-<full commit>` and update the moving `development` alias only if that commit is still the branch head. The base version comes from the same history-based release planner used by beta/main; the development suffix is the Delivery workflow run number. Images include SBOM and provenance. Candidate and published-image smoke checks verify baked/runtime/frontend identity. This job has no repository write permission and creates no Git tag, GitHub release, or release assets. Development delivery runs independently of the serialized beta/main release queue. A retry reuses an existing exact-version image rather than replacing it; commit-specific tags identify source, not necessarily unique bytes across separate workflow runs. Deploy by digest for exact bytes.
-
-Dependabot targets development with weekly grouped updates. Review dependency changes, add a release-note entry to an application/pipeline update PR, and rerun checks before merging. Dependabot is configured from the default branch once these files reach main.
-
-## Feature-focused release notes
-
-Add a uniquely named JSON file under `.github/release-notes/` to each meaningful feature, fix, or pipeline PR:
-
-```json
-{
-  "type": "feature",
-  "title": "Check a console without interrupting library browsing",
-  "description": "Select an individual ROM, a console, a category, or the full library. Verification runs in Activity while results remain visible alongside each file.",
-  "upgrade": "Existing files are retained. Run verification to populate new evidence fields.",
-  "limitations": "Related tracks and companion files are checked together.",
-  "testing": ["Check one console and confirm that other consoles keep their existing results."]
-}
+```sh
+node --test .github/release-tools/semver.test.mjs .github/release-tools/release.test.mjs
+node .github/release-tools/release.mjs validate
+dotnet build web/server/RomChecker.Web.csproj
+dotnet run --project web/tests/Build.Tests
+cd web/client && npm ci && npm run build && npm test
 ```
 
-Allowed types: `feature`, `improvement`, `fix`, `performance`, `security`, `breaking`, `maintenance`. Title and description are required; upgrade/limitations are optional except that breaking changes **must** include upgrade instructions. Entries are append-only and retained for stable-release aggregation; do not delete them after a beta. Avoid secrets, personal data, unverified claims, and raw technical commit titles as feature descriptions.
+The full CI workflow is authoritative and also covers API, catalog, storage/SMB, RomM protocol, PowerShell and browser integration tests. Container and dependency scanners block fixable HIGH/CRITICAL findings; a clean scan is not a guarantee of safety. Never grant write credentials to untrusted PR code or switch to `pull_request_target`.
 
-Optional `testing` is a nonempty array of distinct, actionable checks (8-4000 characters each). It appears only in the beta's **What to test** section, never in stable notes. Only checks attached to the current beta's changes are shown; the generator does not invent checks or repeat earlier testing prompts.
+## SemVer and Docker tags
 
-Use optional `knownIssues` (a string, up to 4000 characters) for a confirmed unresolved defect, not an intentional product limitation. Existing `limitations` entries retain their meaning and are not automatically reclassified. To resolve an issue, add a new entry with `resolvesKnownIssues`, a nonempty array containing the exact previously reported issue text. Validation rejects unknown references and reporting the same issue as both active and resolved. Fixed bugs, active issues, and product limitations have separate sections.
+`.github/release-tools/semver.mjs` validates SemVer 2.0.0, compares prerelease identifiers correctly, and converts versions to Docker-safe tags. `.github/release-config.json` contains the next stable release target and the one-time internal counter seed.
 
-When a limitation becomes outdated, add a new entry with a replacement `limitations`
-text and a `supersedesLimitations` array containing the exact old limitation text.
-The replacement must preserve any cautions that still apply. Validation rejects
-unknown references; the old entry remains unchanged. Generated release notes and
-embedded metadata omit superseded limitations when both entries are in the safety
-context described below. Previously published releases remain unchanged.
-
-Use a friendly, lightly gaming-themed patch-note voice in new entries: describe the actual user benefit first, then add a little personality. The shared template supplies one emoji per section heading and channel-specific introductions for both GitHub and embedded notes. Avoid emoji-heavy sentences, full roleplay, or claims such as "flawless protection." Keep security disclosures, breaking changes, backup/migration instructions, and limitations factual and explicit. Keep versions, image tags, commands, and English Conventional Commit subjects unchanged and emoji-free. Do not rewrite published entries or releases just to change their tone.
-
-### Channel layouts
-
-| Order | Stable: 🎮 Release notes | Beta: 🧪 Beta patch notes |
+| Image purpose | Application/channel version | Docker tag |
 |---|---|---|
-| 1 | Stable identity, short introduction and comparison baseline | Testing warning, short introduction and comparison baseline |
-| 2 | Security and breaking-change notices | Security and breaking-change notices, including earlier betas |
-| 3 | Feature highlights, improvements and fixes | Changes in this beta |
-| 4 | Maintenance | What to test, then maintenance |
-| 5 | Before you upgrade | Before you test |
-| 6 | Known issues, then known limitations | Known issues, then known limitations |
-| 7 | Installation details and commit history | Installation details and commit history |
+| Internal build 32 | `0.3.0-internal.32+d45e67f` | `0.3.0-internal.32-d45e67f` |
+| Beta promotion 1 | `0.3.0-beta.1` | `0.3.0-beta.1` |
+| Release candidate 1 | `0.3.0-rc.1` | `0.3.0-rc.1` |
+| Stable | `0.3.0` | `0.3.0` |
 
-Development notes have a distinct workshop identity and explicit experimental-build warning. They summarize changes since the preceding stable tag and use **Before you test**, without beta-only testing prompts.
+Internal build numbers are stored in the repository Actions variable `ROMCHECKER_INTERNAL_BUILD_NUMBER`; workflow concurrency serializes allocation. Gaps after failed builds are expected; numbers must not be reset. Beta and RC counters advance independently per configured target by checking existing release records. All versioned image tags are immutable. `internal`, `beta`, `latest`, and channel-manifest aliases are conveniences only; pin an exact version or digest for repeatable deployment.
 
-Empty editorial sections are omitted. Stable feature highlights use short headings and benefit-focused paragraphs; keep major integrations as separate entries. Other changes, including beta changes and maintenance, use bullets with bold introductory titles. Use one emoji per main heading and plain-English names; avoid extra feature-title emojis in new entries. Security and breaking changes always precede highlights.
+The image's **build identity** is immutable. It always reports the SemVer, commit, build number, build timestamp, and workflow URL baked at build time. A promotion adds a separate **channel identity** (for example `0.3.0-beta.1`) to release metadata and never pretends that the image was rebuilt as a beta. Frontend/backend version reporting identifies the immutable build and the selected update channel separately.
 
-Upgrade instructions and cautions are lists. The template supplies separate backup, matching-container-version and rollback bullets. Author `upgrade` text as a concise action for that entry; the generator labels it with the entry title. Identical upgrade text is consolidated, but distinct requirements are never automatically paraphrased or sentence-split. Consolidate repeated reminders when writing new entries, not by rewriting published entries.
+## Internal testing
 
-For example, a maintenance item renders as `- **Predictable runners:** Pin runner versions for predictable builds.` An upgrade item renders as `- **Storage migration:** Back up the database before migrating.` Retain every meaningful compatibility requirement even when it needs a longer bullet.
+After a successful merge to `develop`, pull a specific image by the exact Docker-compatible version emitted in the `Integration build` summary. Internal test environments must use a separate Compose project, env file, host ROM folder, port, and named volumes from production:
 
-Beta notes are incremental against the preceding applicable published ancestor beta/stable release. Main notes include **all** entries since the preceding published stable release, even if they appeared in several betas. Reserved tags and drafts from failed deliveries never remove changes from later release notes. The first release includes all available entries. If a direct push has no editorial entry, notes explicitly say so and include commit history; the pipeline does not invent feature claims.
-
-The planner separately records `safetyNotes` since the preceding published stable release (excluding the release being planned). This full preview-cycle context retains upgrade instructions, security/breaking notices, unresolved known issues and current limitations in later betas without repeating old feature lists. Issue resolutions and limitation replacements apply across that context. These release-scoped cautions are not a permanent issue tracker: restate still-relevant cautions in a new entry for a later release cycle. Older manifests without `safetyNotes` fall back to their own entries.
-
-GitHub notes keep expandable commit history. Embedded notes use ordinary Markdown headings for the same history, without GitHub-only HTML. Both retain exact image versions, source revisions and verified full-hash commit links; published GitHub notes also include the image digest. The in-app reader renders headings, lists, emphasis, links and code, disables raw HTML and remote images, and allows only HTTP(S) links. It remains readable with older plain-text metadata. Available-update upgrade requirements stay visible outside the expandable notes; limitations and issues are shown inside, with supplementary lists when older notes omit them.
-
-Metadata remains format 1: `knownIssues` is additive and optional for readers, defaulting to an empty list. Existing upgrade/limitation arrays remain unchanged. These presentation rules apply only to newly generated releases and images; do not rewrite published releases, tags, append-only entries or image-baked notes.
-
-## Version rules
-
-`version.txt` is the initial release floor. With the current baseline, the first beta is `0.2.0-beta.1`, and the first stable release is `0.2.0`. After a stable tag exists:
-
-| Change since previous stable release | Next release |
-|---|---|
-| Breaking note, `feat!:`, or `BREAKING CHANGE:` trailer | Next major |
-| Feature note or `feat:` commit | Next minor |
-| Fixes, performance, documentation, maintenance, or other changes | Next patch |
-
-Breaking changes deliberately advance the major version even before 1.0; this avoids silently breaking preview users. Beta numbers increment within the upcoming release line. For example, after `1.2.0`: feature previews are `1.3.0-beta.1`, `.2`, and `.3`; promotion creates `1.3.0`, not three stable releases. A later fix produces `1.3.1-beta.1` and then `1.3.1`.
-
-Tags are the release-version ledger. Never repoint or delete them. The pipeline stamps `version.txt` and frontend package metadata in the build workspace without committing generated changes. The UI, GitHub release, and exact Docker tag identify the same application version.
-
-## Build identity and compatibility
-
-Each published container includes `/app/build-info.json`: application version, Delivery workflow build number, build attempt, channel (`development`, `beta`, or `stable`), full source SHA, UTC build timestamp, workflow URL, and database schema version. Docker copies the same file into the frontend distribution and compiles the version into its JavaScript. OCI version/revision/created labels and `io.romchecker.*` labels carry the same identity. Build numbers are workflow-local, not global release ordering; attempts identify retries. Reusing an already published image preserves its original build metadata, even when a later attempt performs the publication checks.
-
-The baked file is authoritative. `ROMCHECKER_VERSION` and `ROMCHECKER_COMMIT` remain image defaults for external tooling but cannot override `/api/info`, startup logs, or Settings. Missing/invalid container metadata fails startup; source runs without that file are explicitly `0.0.0-local`, build 0. Unversioned local Docker builds default to the same local identity and cannot pass published-image identity smoke checks.
-
-The bottom-left sidebar shows the running version and channel, links to **Settings > System & updates**, and indicates confirmed updates. Collapsed navigation retains an accessible version control; mobile navigation shows the full label. Detailed version and system information are available without Advanced mode. `/api/system` reports the container/process OS, architecture, .NET runtime, uptime snapshot, and configured application paths, not Docker host information. The authenticated diagnostic JSON download (`/api/diagnostics/build`) includes only build/schema/runtime metadata, not settings, credentials, storage paths, or ROM data.
-
-The pipeline generates `release-info.json` from the same release plan as published notes. Images include `/app/release-info.json` and `/app/release-notes.md`, so installed notes work offline. `metadataFormatVersion` describes the metadata contract independently of `schemaVersion`, which remains the database compatibility marker. Version/channel/commit mismatches or unsupported metadata formats fail published-container startup. The checked-in `release-info.json` is a local-build placeholder; do not commit generated publication metadata. Custom published image builds must generate matching metadata through the release planner.
-
-Startup checks adopt existing unversioned SQLite databases as schema 1 without altering their tables or ROM data. `PRAGMA user_version` is checked before application stores/workers start; newer unsupported schema versions fail with backup/compatible-image guidance and are never reset. Future schema changes must add explicit migrations and advance the supported range and baked schema together. Equal schema numbers do not guarantee safe upgrades or rollback: review upgrade instructions and limitations in the release notes. An image predating this guard cannot enforce downgrade protection.
-
-## Channel-aware update notifications
-
-Update checks are disabled by default and never install software. Set `ROMCHECKER_CHECK_UPDATES=true` on the application server, then use **Settings > System & updates > Check for updates**. Also set `ROMCHECKER_SCHEDULED_UPDATES=true` to check shortly after startup (5-60 seconds jitter) and every 5.5-6.5 hours thereafter. Browser status polling reads the server cache only; it does not contact the registry. Checks share an in-memory cache across browser sessions and are limited to once per minute, including failures; restarting clears the cache. Errors retain the timestamped last successful result and mark it stale, never "up to date."
-
-The server reads this package's GHCR `development`, `beta`, or `latest` image metadata for the baked channel and CPU architecture. It compares semantic application versions, not build counters alone, refuses cross-channel results/conflicting identities, and reports a schema warning when the candidate schema differs. A channel alias older than the running image does not trigger a downgrade. Switching channels requires explicitly deploying another channel image; runtime environment variables do not change the baked channel.
-
-Each published version also has a small scratch companion image at `<version>-metadata` in the same GHCR package. Its only layer contains `release-info.json`; it is data, never executed. Publication verifies its contents and refuses to replace conflicting metadata on retries before advancing channel aliases. This provides development release notes without creating development GitHub releases. The checker verifies the layer digest, bounds compressed/decompressed data to 2 MiB, and validates version/channel/source identity. Notes failures do not hide confirmed image updates: they produce a separate warning. Release notes are displayed using restricted Markdown; raw HTML is disabled and never trusted.
-
-Public package checks need no credentials. For this private package, configure `ROMCHECKER_UPDATE_USERNAME` and a server-only `ROMCHECKER_UPDATE_TOKEN` with package-read access (and required organization authorization, if applicable). These credentials are never sent to the browser or exported in diagnostics. Checks contact `ghcr.io` and its signed `pkg-containers.githubusercontent.com` blob endpoint; no ROM data is sent. Network/authentication/invalid-metadata failures are explicit errors, not an "up to date" result. Deployments without outbound access can leave checks disabled.
-
-## Release transaction and retries
-
-For beta/main:
-
-```text
-Required CI
-  -> plan and reserve version tag
-  -> build candidate (or reuse existing exact-version image)
-  -> vulnerability and runtime/version checks
-  -> publish immutable image with SBOM/provenance
-  -> verify published digest and runtime, and scan that digest
-  -> assemble release notes and checksummed assets
-  -> publish and verify immutable companion metadata image
-  -> upload draft release assets, publish release, and verify its assets and checksums
-  -> update beta/latest alias only for current branch head
+```sh
+cp .env.example .env.internal
+# Edit .env.internal: use an isolated ROM_LIBRARY, a unique password/token,
+# ROMCHECKER_PORT=18080, and ROMCHECKER_IMAGE with the exact internal tag.
+ROMCHECKER_UPDATE_CHANNEL=internal
+docker compose --env-file .env.internal -p romchecker-internal pull
+docker compose --env-file .env.internal -p romchecker-internal up -d --no-build
+docker compose --env-file .env.internal -p romchecker-internal ps
 ```
 
-An immutable tag is reserved **after CI** and before the image build. A failed delivery can therefore leave a reserved Git tag, an image, or a draft release without a published GitHub release. This is intentional: rerunning that delivery reuses the version, checks source labels, reuses the image, and finishes the transaction. Fix source errors in a new commit; the new commit gets a new version. Never overwrite an image with different bytes under an existing version.
+The project name creates separate `app-data`, `rom-storage`, and `signatures` volumes. Never use a production `.env`, ROM library, named volumes, ports, credentials, or a mutable `internal` alias for a controlled test. Stop the test stack with `docker compose --env-file .env.internal -p romchecker-internal down` (without `-v` if test data should be retained). Compare the app version, source commit, build number, and image digest to the workflow summary before testing.
 
-An already published release is accepted on retry only if its source commit and image digest match. Published release assets are not replaced. Draft asset uploads are retriable. Channel aliases update from the exact digest, never an unverified local tag. Old-run retries cannot move a channel alias back past a newer branch head or mark an old stable release as latest.
+## Beta promotion
 
-Registry reads retry transient network, throttling and server errors up to three times. Pushes are not blindly retried: a failed push might already have published an immutable tag. Rerun the delivery so it first checks whether the version exists. A delivery summary lists stage outcomes, known image/digest and alias state; a failed step can have published an artifact despite reporting failure. A release can be public even if subsequent verification or alias update fails.
+Beta publication is **manual only** via **Actions > Beta promotion > Run workflow**. Select an immutable internal Docker tag (not `internal`), confirm the configured target `0.3.0`, and optionally enter release notes. The workflow verifies the source image identity, that the commit is in `develop`, and that its required CI check succeeded. It determines the next `beta.N`, promotes the selected digest without rebuilding, verifies the digest before/after, writes immutable and moving channel manifests, and publishes a prerelease record with image digest and source commit. A beta release never publishes `latest`.
 
-GitHub Actions serializes release deliveries across beta and main. It does not cancel the running delivery, but GitHub retains only the **newest pending run** in a concurrency group. Rapid pushes can therefore be coalesced: the next release contains intervening changes, not necessarily one release per intermediate push. Wait for the current delivery before another release promotion if each must have its own release.
+The beta environment can require a reviewer. Duplicate versions and conflicting image tags fail closed. If a run fails after publishing artifacts, inspect the run summary, registry tags, and GitHub release before retrying; do not manually repoint immutable tags.
 
-The Actions `release-record-*` artifact retains the plan, notes, digest, and diagnostics for 90 days. The GitHub release permanently includes `release-manifest.json`, `image-digest.txt`, and `SHA256SUMS`; validate downloaded assets with `sha256sum -c SHA256SUMS`. SBOM/provenance attestations are attached to the registry image. This is build provenance, not a separately configured release-signing identity.
+## Release candidates and stable releases
 
-Automatic Docker `.dockerbuild` artifact uploads are disabled in CI and delivery to avoid consuming Actions artifact storage on every build. Build summaries and logs remain available; registry images and their SBOM/provenance are unaffected. Explicit browser-failure and release-record uploads still require available Actions artifact storage. If those uploads hit the quota, check the repository owner's Actions storage usage in GitHub billing settings; usage can come from other repositories and storage accounting is not immediate. This repository does not automatically delete existing artifacts.
+1. Create `release/<version>` from `develop`; freeze feature work. CI and integration builds run on release-branch commits, but they do not move the internal channel alias.
+2. Fix release-blocking issues on focused branches into the release branch. Dispatch **Release candidate** from that release branch, select its exact immutable internal image tag, confirm the configured target, and provide notes. The workflow requires that the image source SHA is exactly the release branch head and that CI passed.
+3. Each manual run publishes the next `0.3.0-rc.N` release, manifest, and source/digest record using the existing image digest. Test the exact RC image in an isolated environment; repeat after release-blocking fixes. Do not merge new features into the release branch.
+4. After approval, merge the release branch into `main`, merge the approved release history back into `develop`, and create the stable Git tag `v0.3.0` on the approved `main` commit. The tag starts `release.yml`; the `production` environment should require manual approval.
+5. The stable workflow verifies the tag, configured target, main ancestry, and latest matching RC manifest. It promotes exactly that RC digest to `0.3.0` and `latest`, verifies the digest, publishes the stable channel manifest, and creates a GitHub release with traceability assets. It never builds a new app image.
+6. After release, update `nextRelease` in `.github/release-config.json` to the explicitly selected next target in a reviewed PR. Do not infer the target from `main`, `develop`, or SemVer precedence alone.
 
-## GitHub setup and protection
+An RC is a release-candidate channel, not an update-check channel. The supported application update channels are `stable`, `beta`, and `internal`.
 
-Install the files on all three branches through reviewed promotions. Actions must be enabled; the delivery job requests `contents: write` and `packages: write`. For an existing GHCR package, grant this repository Actions access under the package's settings. No personal access token or deployment SSH secret is required for releases.
+## Hotfixes
 
-Use the following protection on development, beta, and main:
+Create `hotfix/<description>` from `main`; implement only the production fix and test it. Open a PR into `main`, include a release note, and merge after CI. For the emergency release, build the hotfix head and dispatch **Release candidate** from that hotfix branch; it is the explicit RC exception to the usual `release/*` flow. The corresponding stable release still requires an approved RC/digest; never publish from an arbitrary main push. Merge the hotfix into `develop` so it is not lost from future work. Do not cherry-pick unrelated development features into production.
 
-- Require a PR, `Required checks`, up-to-date branches, and resolved conversations.
-- Disallow force pushes and branch deletion.
-- Enforce protection for administrators.
-- For a solo maintainer, require **zero external approvals**, so the owner can merge their own passing PRs. Teams can increase this.
+## Update checks and deployment
 
-Preview the provided setup:
+The application reads channel manifests from GHCR using an anonymous pull token for public packages or optional server-only package-read credentials for private packages. Stable users do not need a GitHub login. Manifests carry channel version, immutable build version, image tag/repository, verified digest, commit, build number, schema version, publication time, and release-notes URL. The manifest package must allow anonymous reads for public updates; the app never receives a write token.
 
-```powershell
-node .\.github\release-tools\protect-branches.mjs
-```
+Set `ROMCHECKER_CHECK_UPDATES=true` to enable manual checks; add `ROMCHECKER_SCHEDULED_UPDATES=true` for scheduled checks. `ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS` configures the interval from 1–168 hours (default 6). `ROMCHECKER_UPDATE_CHANNEL` selects `stable`, `beta`, or `internal`; set it to match the image channel when deploying a promoted build. Requests are cached and limited to once per minute, scheduled checks are jittered, and network failures retain an explicitly stale last success. The UI can link to version-specific release notes. Update checks **only notify**: they do not pull images, access a Docker socket, restart, or replace a container.
 
-Before enforcing administrators, establish and test emergency access with an account that can administer this repository: confirm account recovery and a secure authentication method, and verify that account can inspect and temporarily change branch protection. Record the responsible maintainer and recovery process outside the repository. In an emergency, have that administrator temporarily relax only the necessary rule, record the change, use a reviewed PR where possible, and restore and verify protection immediately afterward. Admin enforcement is not a substitute for account recovery; do not apply it until this procedure is established.
+Deploy an exact tag or digest through Compose:
 
-The preview checks Actions permission, an active workflow, rulesets, existing branch protection, and the CI file on **all three branches**. An API permission error is a blocker, not evidence that no rule exists. Review organization rulesets and the actual `Required checks` run on each branch manually as well; the script cannot validate their effectiveness. It refuses to overwrite protection or proceed when it sees existing repository rulesets. Previously protected branches may remain in place if their settings include the required baseline; a protected target is never overwritten.
-
-Apply one branch at a time only after preview succeeds and emergency access is established:
-
-```powershell
-node .\.github\release-tools\protect-branches.mjs --apply --branch development --confirm-emergency-access
-# Verify, then repeat for beta and main.
-```
-
-It targets `Phthisicus/ROM-Checker` by default; set `GITHUB_REPOSITORY=owner/repo` to change the target. The flag is an operator attestation, not an automated emergency-access test. Ensure nobody else changes protection during the preview/apply window; the API update is not an atomic create-if-absent operation.
-
-The current installation cannot read or configure branch protection or Actions permissions, and `main` does not yet contain this CI workflow. Until an authorized administrator installs and verifies protections, workflows alone cannot prevent direct pushes or merging a failed PR. Publication still waits for CI. Do not change repository visibility merely to work around plan restrictions.
-
-GitHub merge queues require `merge_group` checks and a supported plan/ruleset; availability and administration could not be verified with the current installation. Do not enable a queue with this workflow: promotion policy is checked on PR events, not merge groups. Instead require **up-to-date branches** (`strict: true`) on all three branches. Update the PR branch when the target changes, wait for a fresh `Required checks` result on the merge commit, and merge only while GitHub shows it up to date. A queue can be reconsidered after implementing and testing `merge_group` policy and CI for beta and main.
-
-Promotion branches are themselves protected, so GitHub's **Update branch** button may be unable to push directly to them. To bring `development` up to date with `beta`, open a `beta` → `development` PR with a Conventional Commit title such as `chore: sync beta history`; merge it after checks pass. To bring `beta` up to date with `main`, first merge a `main` → `development` PR, then promote `development` → `beta`. If `development` also lacks the latest `beta` merge commit, sync `beta` → `development` first. Finally promote `beta` → `main`. Resolve conflicts and include release notes where required; never bypass protection or squash these history-sync merges. This preserves the allowed promotion sources and ancestry without directly pushing to a protected branch.
-
-After each branch is protected, use disposable PRs to verify that pending and failed `Required checks` block merging and passing checks permit the intended promotion. Verify resolved conversations, blocked direct pushes/force pushes/deletion and administrator enforcement. Do not claim enforcement based solely on a successful API response. Separately exercise a delivery retry and a controlled failed delivery in a safe test repository; confirm immutable artifact reuse and that the alias does not advance. Never deliberately fail a production release to perform this test.
-
-The default branch's workflow and note files must reach main for normal repository configuration discovery, including Dependabot and the PR template. Release publishing begins when these workflows are pushed to beta/main; merely adding them locally creates no releases.
-
-## Deploying and rolling back
-
-Publishing does **not** automatically update a running installation. No production host or deployment credentials have been configured. Use an exact immutable tag or digest for repeatable deployment:
-
-```dotenv
-ROMCHECKER_IMAGE=ghcr.io/phthisicus/rom-checker:1.3.0
-# Or: ghcr.io/phthisicus/rom-checker@sha256:<digest from release>
-```
-
-Back up application data, ROM storage, and configuration, and ensure imports/processing are idle. Then:
-
-```powershell
+```sh
 docker compose pull
 docker compose up -d --no-build
 docker compose ps
 ```
 
-Use the same image reference for all Compose services. Check health and the application version before resuming imports. For rollback, select the previous exact version and restore a matching data backup if a migration is not backward compatible. Do not run `docker compose down -v`; it deletes persistent data. `beta` and `latest` are convenient moving aliases, not immutable rollback references.
+Use the same image reference for the application, storage service, and signature updater. Back up application data, ROM storage, and configuration first. A changed channel or tag does not change a running container; a new Compose deployment is a separate operator action. Rollback may require restoring a matching database backup. Never run `docker compose down -v` on production data.
 
-### Recovery from partial publication
+## Repository configuration and access
 
-1. Stop promotions and inspect the failed run's summary, logs and `release-record-*` artifact. Record the source SHA, reserved Git tag, image and companion metadata tags, release draft/publication state, digest and current channel alias. Check the registry and GitHub directly; a failed network operation may have succeeded remotely.
-2. If the failure was transient, rerun the same delivery. It checks the reserved tag and existing image identity, rescans and reuses the image, and verifies metadata before publishing or moving an alias. Do not delete, repoint or overwrite immutable artifacts. If an artifact conflicts, stop and investigate manually.
-3. If source or scan findings require a change, submit a new PR through the normal branch policy. Leave the incomplete artifacts identifiable; do not automatically roll back the branch or database. A public release whose verification or alias update failed remains a partially delivered release until reconciled.
-4. To switch channels or recover a deployment, first stop application activity and take consistent backups of application data (including SQLite databases and any WAL files), ROM storage and configuration. Record the currently deployed image digest and confirm backup restoration works. Review both versions' upgrade and schema compatibility guidance.
-5. Set `ROMCHECKER_IMAGE` to the chosen channel's exact verified version or digest, use the same reference for every service, and run the manual Compose commands above. Check health, authentication, version and data before resuming activity. An older image may require restoring its matching data backup; schema numbers alone do not prove rollback is safe. Changing a channel alias or environment channel does not update an already running installation.
+These settings are manual GitHub administration; workflow files cannot apply them:
 
-Images initially target Linux amd64. Architecture expansion and unattended server rollout require their own tested deployment policy.
+- Protect `main` and `develop`; require PRs and up-to-date `Required checks`; block force pushes and deletion. For a solo maintainer, zero required outside approvals is reasonable.
+- Limit Actions default permissions. CI and feature builds need read-only access; internal builds need `packages: write` and `actions: write` for the persistent counter; promotions need `packages: write` and `contents: write`.
+- Grant the repository Actions access to the GHCR package. Allow public reads if stable update checks should be unauthenticated.
+- Create `beta`, `release-candidate`, and `production` environments; configure manual reviewers for production and restrict stable deployments to release tags.
+- Confirm workflow check names, Actions enablement, GHCR visibility, and permissions in GitHub; do not assume repository files changed the settings.
 
-## Local release validation
+The preflight helper in `.github/release-tools/protect-branches.mjs` can inspect/apply baseline protection one branch at a time. Review its output and ensure recovery access first; this repository task does not modify remote settings.
 
-```powershell
-node --test .\.github\release-tools\release.test.mjs
-node .\.github\release-tools\release.mjs validate
-docker run --rm --mount "type=bind,source=$($PWD.Path),target=/repo,readonly" -w /repo rhysd/actionlint:1.7.7 -color
-```
+## Troubleshooting
 
-Tests use disposable git histories to verify SemVer, beta/stable promotion, cumulative notes, append-only note policy, and deterministic retries. They do not create real releases, push tags, or publish packages.
+| Symptom | Safe response |
+|---|---|
+| `Required checks` failed | Inspect the failing job, reproduce its targeted test, fix through a PR, and wait for fresh checks. Do not bypass protection. |
+| Internal image tag already exists | Compare its labels and digest with the run's source SHA. Never overwrite it; allocate a new build through a new integration commit/run. |
+| Counter API or workflow permission failed | Check Actions `actions: write` permission and the repository variable. Never reset a higher stored counter to the seed. |
+| Beta/RC promotion failed after tagging | Inspect the immutable image/manifest tags and GitHub release assets. Verify source SHA and digest; if artifacts conflict, stop and reconcile manually. |
+| Stable release rejected | Verify tag SemVer, configured `nextRelease`, tag ancestry from `main`, and a published matching RC. Do not create a replacement tag over an existing tag. |
+| Update check returns an error | Check opt-in settings, selected channel, package visibility/read permission, outbound HTTPS to GHCR, and server logs. An error is not an "up to date" result. |
+| Internal deployment appears empty | Confirm the distinct Compose project name, env file, host folder, port, and exact image tag. Do not attach production volumes to test builds. |
+
+## Practical release checklist
+
+- [ ] Confirm `.github/release-config.json` target and persistent internal build counter.
+- [ ] Merge only reviewed PRs; required CI and release-note validation are green.
+- [ ] Test an exact internal digest in an isolated Compose project.
+- [ ] Manually promote an approved internal build to beta; verify its digest and notes.
+- [ ] Create/freeze the release branch; publish and test an RC from its exact head.
+- [ ] Approve the candidate; merge to `main` and synchronize release changes to `develop`.
+- [ ] Create the stable tag only with explicit authorization; approve the production environment.
+- [ ] Verify the stable release manifest, GitHub notes, GHCR digest, and update channel.
+- [ ] Set the next release target explicitly and document any follow-up migration/configuration.

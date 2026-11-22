@@ -16,7 +16,9 @@ Never commit populated `.env` or `.env.romm` files.
 | `ROMCHECKER_STORAGE_TOKEN` | Separate app/storage secret, at least 32 characters; keep both services in agreement |
 | `ROMCHECKER_IMAGE` | Published channel, exact version, or digest |
 | `ROMCHECKER_CHECK_UPDATES` | Opt into manual same-channel GHCR update notifications; default false |
-| `ROMCHECKER_SCHEDULED_UPDATES` | Also check about every six hours; requires update checks enabled; default false |
+| `ROMCHECKER_SCHEDULED_UPDATES` | Also check at the configured interval; requires update checks enabled; default false |
+| `ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS` | Scheduled update interval, 1–168 hours; default 6 |
+| `ROMCHECKER_UPDATE_CHANNEL` | Select `stable`, `beta`, or `internal`; set this to match the deployed promotion |
 | `ROMCHECKER_UPDATE_USERNAME` / `ROMCHECKER_UPDATE_TOKEN` | Optional server-only GHCR package-read credentials for private packages |
 | `ROMCHECKER_PORT` | Host loopback port, default 8080 |
 | `ROMCHECKER_SMB_HOSTS` | Comma-separated exact approved SMB hosts; empty disables connections |
@@ -39,10 +41,10 @@ notes (available offline), build details, container/process runtime information,
 storage paths, and sanitized diagnostics. The runtime information is not a report
 of the Docker host.
 
-Checks follow the image's baked channel: `development` checks development builds,
-`beta` checks betas, and stable (`main`, image tag `latest`) checks stable releases.
-No channel is switched automatically. Checks contact GHCR and its signed blob
-download endpoint, not external ROM services, and require outbound HTTPS access.
+Checks use the explicitly selected release channel. The immutable build version
+and promoted channel version are reported separately because promotion preserves
+the app image digest. Checks read the matching GHCR channel manifest and require
+outbound HTTPS access; public packages do not require user authentication.
 Disabled checks make no registry requests. A network failure is reported explicitly;
 the last successful result, if any, is retained as stale.
 

@@ -9,7 +9,7 @@ For step-by-step installation and everyday usage, start with the
 
 **Verify. Protect. Preserve.**
 
-[![CI and delivery](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml/badge.svg?branch=development)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/delivery.yml)
+[![CI](https://github.com/Phthisicus/ROM-Checker/actions/workflows/ci.yml/badge.svg?branch=develop)](https://github.com/Phthisicus/ROM-Checker/actions/workflows/ci.yml)
 ![Deployment: self-hosted](https://img.shields.io/badge/deployment-self--hosted-91d900)
 ![Container platform: Linux amd64](https://img.shields.io/badge/container-Linux%20amd64-555555)
 
@@ -296,7 +296,8 @@ There is **one shared engine queue across every feature and batch**. A separate 
 | `ROMSORTER_MALWAREBAZAAR_KEY` | Optional secret; configure on server only |
 | `ROMCHECKER_VERSION`, `ROMCHECKER_COMMIT` | Image defaults for external tooling; application identity comes from the baked `/app/build-info.json`, not runtime overrides |
 | `ROMCHECKER_CHECK_UPDATES` | `false`; set `true` to enable same-channel GHCR update checks in Settings; never installs updates |
-| `ROMCHECKER_SCHEDULED_UPDATES` | `false`; with update checks enabled, checks shortly after startup and about every six hours; manual checks remain available |
+| `ROMCHECKER_SCHEDULED_UPDATES` | `false`; with update checks enabled, checks shortly after startup and then at the configured interval |
+| `ROMCHECKER_UPDATE_CHECK_INTERVAL_HOURS` | `6`; scheduled interval from 1 to 168 hours |
 | `ROMCHECKER_UPDATE_USERNAME`, `ROMCHECKER_UPDATE_TOKEN` | Optional server-only GHCR package-read credentials for private-package update checks |
 | `ROMCHECKER_STORAGE_URL` | App only; internal storage URL, empty disables batch storage in standalone mode |
 | `ROMCHECKER_ROLE` | `storage` starts only the internal storage service; empty starts the web app |
@@ -337,33 +338,24 @@ The unmodified [SMBLibrary](https://github.com/TalAloni/SMBLibrary) dependency i
 
 ## Branches, images, and releases
 
-Development follows:
+Development and release management follow:
 
 ```text
-feature branch -> development -> beta -> main
-                 dev container prerelease  stable release
+feature/bugfix -> develop -> internal image -> manual beta -> release/* RC -> main tag
+hotfix/* from main ------------------------------------------^
 ```
 
-- **PRs to all three branches:** quality gates, promotion policy, release-note validation, dependency/container vulnerability gates, Ubuntu and Windows engine regressions, API/storage/RomM integration, Chromium workflows, and container smoke tests.
-- **Successful push to development:** CI, then publish a readable `<next-version>-development.<build-number>` container plus `development` and `development-sha-<commit>` tags, SBOM, and provenance. No Git tag or GitHub release.
-- **Successful delivery on beta:** publish `<version>-beta.<sequence>`, a GitHub **prerelease**, and the `beta` image alias.
-- **Successful delivery on main:** publish a stable version, GitHub **release**, and the `latest` image alias. No additional release PR is required.
-- **Release assets:** feature-focused notes, source commit, exact container digest, machine-readable manifest, checksums, and an image with SBOM/build provenance.
+- **CI:** PRs and pushes to `develop`, `main`, `release/*`, and `hotfix/*` run the required test, security, dependency, and container checks. Feature/bugfix pushes run CI separately and do not publish release images.
+- **Integration:** successful `develop` pushes publish immutable `MAJOR.MINOR.PATCH-internal.N-SHA` GHCR tags and a moving internal-channel manifest. The persistent repository variable prevents build-number resets.
+- **Beta:** only a manual workflow promotes a selected internal image digest to `beta.N`; it does not rebuild the application image.
+- **RC/stable:** manual RC promotions originate from release stabilization branches. Stable tags on `main` promote the approved RC digest, publish release traceability and update metadata, and move `latest`.
+- **Hotfix:** branch from `main`, merge the fix to `main`, publish through the RC/stable approval path, then integrate the fix into `develop`.
 
-Semantic versions come from immutable release tags, Conventional Commits, and reviewed `.github/release-notes/*.json` entries. `version.txt` is the initial version floor (`0.2.0`); subsequent releases are calculated automatically. The build stamps frontend metadata and `version.txt` without generating commits. Each release has the same version in its Docker labels and application UI. Stable notes accumulate all changes since the previous stable release; beta notes describe changes since the preceding applicable beta/stable tag.
+The configured next release target and internal build seed are in `.github/release-config.json`; the migration target is explicitly set to `0.3.0`. Docker tags replace SemVer build-metadata `+` with `-`. The app's baked build identity is immutable, while promoted channel identity is recorded separately, preserving the image digest. Settings reports the app build and update channel; opt-in update checks only notify and never deploy. See the [development and release guide](DEVELOPMENT.md).
 
-Containers permanently embed version, build number/attempt, channel, commit, UTC build time, workflow URL, and schema version. Settings exposes those details and a credential-free diagnostics download. Database schema checks reject unsupported newer data before workers start; always back up before upgrading because older containers may lack this safeguard. Optional manual update notifications compare only the current channel and never deploy changes. See the [build identity and compatibility guide](DEVELOPMENT.md#build-identity-and-compatibility).
+Repository setup remains manual: create/migrate `main` and `develop`, configure branch protections and Actions environments, and grant GHCR package access as described in [repository setup](../.github/REPOSITORY_SETUP.md). Do not remove legacy branches or tags until the migration is verified.
 
-Use Conventional Commit titles and squash merges for **feature PRs into development**. Preserve ancestry with **merge commits for development → beta → main promotions**. No release is created from a PR or development push. Delivery is serialized, and releases/images are retry-safe; reserved tags from failed runs must not be deleted or reassigned. GitHub can coalesce rapid pending deliveries, so an intermediate push may be included in the next release rather than receiving its own release. Wait for delivery before the next promotion when a separate release is required.
-
-Repository-owner setup is still required:
-
-1. Install these changes on `development`, then promote them to `beta` and `main`. Enable Actions and permit the workflow's repository/package write permissions.
-2. Ensure the GHCR package is linked to this repository and grants its Actions workflows write access.
-3. Require **Required checks**, PRs, resolved conversations, and no force pushes/deletions on all three branches. A safe preview/apply script is provided; private repositories may require GitHub Pro.
-4. Merge emergency `hotfix/*` changes back into development and beta. Feature changes never go directly into release branches.
-
-See **[Development and release guide](DEVELOPMENT.md)** for release-note examples, version rules, protection setup, failure recovery, and deployment/rollback instructions. Adding files does not modify remote settings or publish anything. CI builds Linux amd64 images initially. Delivery is automated; updating a running server remains deliberate, with backups and a defined deployment target.
+See **[Development and release guide](DEVELOPMENT.md)** for release-note examples, version rules, protection setup, failure recovery, and deployment/rollback instructions. Adding files does not modify remote settings or publish anything. CI builds Linux amd64 images initially. Publishing is automated only after the configured manual promotion/tag steps; updating a running server remains deliberate, with backups and a defined deployment target.
 
 ## Original command-line application
 
